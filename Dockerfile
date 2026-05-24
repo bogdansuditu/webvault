@@ -37,6 +37,9 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend
 # Create storage and config volumes
 RUN mkdir -p /app/storage /app/config
 
+# Copy default theme configuration template directly to CONFIG_DIR
+COPY config/theme.json /app/config/theme.json
+
 # Configure runtime details
 ENV PORT=8080
 ENV NODE_ENV=production
