@@ -868,3 +868,39 @@ body, html {
   width: 0%;
   transition: width 0.1s ease;
 }
+
+/* Empty Trash Button in Toolbar */
+.empty-trash-btn {
+  background: rgba(255, 69, 58, 0.08);
+  border: 1px solid rgba(255, 69, 58, 0.15);
+  border-radius: 6px;
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #ff453a;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.empty-trash-btn:hover {
+  background: rgba(255, 69, 58, 0.16);
+  border-color: rgba(255, 69, 58, 0.3);
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.15);
+}
+
+.empty-trash-btn:active {
+  background: rgba(255, 69, 58, 0.25);
+  transform: scale(0.98);
+}
+
+.empty-trash-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+}
+

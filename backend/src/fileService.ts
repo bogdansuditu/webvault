@@ -20,8 +20,8 @@ export function resolveSafePath(relativePath: string = ''): string {
     fs.mkdirSync(absoluteStorageRoot, { recursive: true });
   }
 
-  // Auto-create .Trash directory inside storage if not exists
-  const trashPath = path.join(absoluteStorageRoot, '.Trash');
+  // Auto-create .TrashFolder directory inside storage if not exists
+  const trashPath = path.join(absoluteStorageRoot, '.TrashFolder');
   if (!fs.existsSync(trashPath)) {
     fs.mkdirSync(trashPath, { recursive: true });
   }
@@ -115,12 +115,12 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
 
   for (const file of files) {
     // Hide system files and the Trash directory in default listings
-    if (file.startsWith('.') && file !== '.Trash') {
+    if (file.startsWith('.') && file !== '.TrashFolder') {
       continue;
     }
     
-    // In the root, we show '.Trash' as 'Trash', but otherwise don't show it as a normal subfolder
-    if (file === '.Trash' && relativePath !== '') {
+    // In the root, we show '.TrashFolder' as 'Trash', but otherwise don't show it as a normal subfolder
+    if (file === '.TrashFolder' && relativePath !== '') {
       continue;
     }
 
@@ -130,7 +130,7 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
       const itemRelativePath = path.relative(resolveSafePath(''), itemPath);
 
       items.push({
-        name: file === '.Trash' ? 'Trash' : file,
+        name: file === '.TrashFolder' ? 'Trash' : file,
         relativePath: itemRelativePath,
         isDirectory: itemStat.isDirectory(),
         size: itemStat.size,
@@ -188,7 +188,7 @@ export function renameOrMove(oldRelativePath: string, newRelativePath: string): 
 // Move to Trash (macOS Finder-like)
 export function moveToTrash(itemRelativePath: string): string {
   const safeItem = resolveSafePath(itemRelativePath);
-  const trashRoot = path.join(resolveSafePath(''), '.Trash');
+  const trashRoot = path.join(resolveSafePath(''), '.TrashFolder');
 
   if (!fs.existsSync(safeItem)) {
     throw new Error('Item does not exist');
@@ -235,7 +235,7 @@ export function deletePermanently(itemRelativePath: string): string {
 
 // Empty Trash folder
 export function emptyTrash(): void {
-  const trashRoot = path.join(resolveSafePath(''), '.Trash');
+  const trashRoot = path.join(resolveSafePath(''), '.TrashFolder');
   if (fs.existsSync(trashRoot)) {
     const files = fs.readdirSync(trashRoot);
     for (const file of files) {

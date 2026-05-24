@@ -136,7 +136,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   // Navigate to a specific path
   const navigateTo = (newPath: string) => {
     // Prevent navigating beyond Trash when inside Trash
-    const normalized = newPath === 'Trash' ? '.Trash' : newPath;
+    const normalized = newPath === 'Trash' ? '.TrashFolder' : newPath;
     
     // Add to history and update index
     const nextHistory = pathHistory.slice(0, historyIndex + 1);
@@ -586,14 +586,14 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     e.stopPropagation();
     if (!draggedItem) return;
 
-    const normalizedTarget = targetSidebarPath === 'Trash' ? '.Trash' : targetSidebarPath;
+    const normalizedTarget = targetSidebarPath === 'Trash' ? '.TrashFolder' : targetSidebarPath;
     const itemsToMove = selectedItems.some(i => i.relativePath === draggedItem.relativePath)
       ? selectedItems
       : [draggedItem];
 
-    if (normalizedTarget === '.Trash') {
+    if (normalizedTarget === '.TrashFolder') {
       // Filter out items that are already in trash
-      const validItems = itemsToMove.filter(item => !item.relativePath.startsWith('.Trash'));
+      const validItems = itemsToMove.filter(item => !item.relativePath.startsWith('.TrashFolder'));
       if (validItems.length === 0) {
         setDraggedItem(null);
         return;
@@ -794,7 +794,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         onClick: triggerUpload
       });
       
-      if (currentPath.includes('.Trash') || currentPath === 'Trash') {
+      if (currentPath.includes('.TrashFolder') || currentPath === 'Trash') {
         menuItems.push({
           label: 'Empty Trash',
           onClick: executeEmptyTrash
@@ -815,7 +815,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
 
   // Render sidebar paths active state checker
   const isSidebarActive = (path: string) => {
-    if (path === 'Trash' && currentPath.includes('.Trash')) return true;
+    if (path === 'Trash' && currentPath.includes('.TrashFolder')) return true;
     return currentPath === path;
   };
 
@@ -830,7 +830,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
             <button className="control-dot dot-green" title="Maximize" />
           </div>
           <div className="window-title">
-            {currentPath.includes('.Trash') || currentPath === 'Trash' ? 'Trash' : currentPath ? pathBasename(currentPath) : 'WebVault Home'}
+            {currentPath.includes('.TrashFolder') || currentPath === 'Trash' ? 'Trash' : currentPath ? pathBasename(currentPath) : 'WebVault Home'}
           </div>
         </div>
 
@@ -877,7 +877,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 Home
               </span>
               {currentPath && currentPath.split('/').map((segment, idx, arr) => {
-                if (segment === '.Trash') segment = 'Trash';
+                if (segment === '.TrashFolder') segment = 'Trash';
                 const subPath = arr.slice(0, idx + 1).join('/');
                 const isOver = dragOverBreadcrumb === subPath;
                 return (
@@ -910,6 +910,19 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           </div>
 
           <div className="toolbar-right">
+            {/* Empty Trash Button (Only in Trash directory) */}
+            {(currentPath.includes('.TrashFolder') || currentPath === 'Trash') && (
+              <button 
+                className="empty-trash-btn" 
+                onClick={executeEmptyTrash} 
+                title="Empty Trash"
+              >
+                <TrashIcon size={14} />
+                <span>Empty Trash</span>
+              </button>
+            )}
+
+
             <button className="toolbar-btn" onClick={() => {
               setTargetFile(null);
               setModalInput('Untitled Folder');
@@ -1065,7 +1078,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               className={`sidebar-item ${isSidebarActive('Trash') ? 'active' : ''}`} 
               onClick={() => navigateTo('Trash')}
               onDragOver={(e) => {
-                if (draggedItem && !draggedItem.relativePath.startsWith('.Trash')) {
+                if (draggedItem && !draggedItem.relativePath.startsWith('.TrashFolder')) {
                   e.preventDefault();
                 }
               }}
