@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   FolderIcon, FileIcon, ImageIcon, PDFIcon, AudioIcon, VideoIcon, ArchiveIcon, TrashIcon,
   SearchIcon, GridIcon, ListIcon, NewFolderIcon, UploadIcon, InfoIcon, 
-  ChevronLeftIcon, ChevronRightIcon, SunIcon, MoonIcon, PowerIcon
+  ChevronLeftIcon, ChevronRightIcon, SunIcon, MoonIcon, PowerIcon,
+  IconSetContext
 } from '../../assets/icons';
 import { ContextMenu, ContextMenuItem } from '../ContextMenu/ContextMenu';
 
@@ -35,6 +36,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   user, setUser, displayName, setDisplayName,
   themeData, activeTheme, onSelectTheme
 }) => {
+  const iconSet = themeData?.themes?.[activeTheme || 'sonoma']?.iconSet || 'sf-symbols';
   // Navigation Path History
   const [currentPath, setCurrentPath] = useState('');
   const [pathHistory, setPathHistory] = useState<string[]>(['']);
@@ -820,7 +822,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   };
 
   return (
-    <div className="mac-window">
+    <IconSetContext.Provider value={iconSet}>
+      <div className="mac-window">
       {/* Finder Header: Titlebar & Toolbar */}
       <header className="window-header">
         <div className="title-row">
@@ -1714,7 +1717,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         items={contextMenu.items}
         onClose={() => setContextMenu({ ...contextMenu, visible: false })}
       />
-    </div>
+      </div>
+    </IconSetContext.Provider>
   );
 };
 

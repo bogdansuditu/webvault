@@ -537,6 +537,7 @@ body, html {
   position: relative;
   transition: background 0.15s ease;
   border: 1px solid transparent;
+  color: var(--text-primary);
 }
 
 .grid-item:hover {
@@ -616,6 +617,7 @@ body, html {
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text-primary);
 }
 
 .list-file-name-cell svg {
@@ -655,6 +657,7 @@ body, html {
 .details-icon-wrapper {
   width: 64px;
   height: 64px;
+  color: var(--text-primary);
 }
 
 .details-icon-wrapper svg {
