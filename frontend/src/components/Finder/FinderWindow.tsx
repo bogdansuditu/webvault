@@ -827,10 +827,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       {/* Finder Header: Titlebar & Toolbar */}
       <header className="window-header">
         <div className="title-row">
-          <div className="window-controls">
-            <button className="control-dot dot-red" title="Close" onClick={() => {}} />
-            <button className="control-dot dot-yellow" title="Minimize" />
-            <button className="control-dot dot-green" title="Maximize" />
+          <div className="app-branding">
+            <img src="/WebVault Icon.svg" alt="Web Vault Logo" />
           </div>
           <div className="window-title">
             {currentPath.includes('.TrashFolder') || currentPath === 'Trash' ? 'Trash' : currentPath ? pathBasename(currentPath) : 'WebVault Home'}
@@ -841,19 +839,19 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           <div className="toolbar-left">
             <div className="nav-buttons">
               <button className="toolbar-btn" onClick={navBack} disabled={historyIndex === 0}>
-                <ChevronLeftIcon size={14} />
+                <ChevronLeftIcon size={16} />
               </button>
               <button className="toolbar-btn" onClick={navForward} disabled={historyIndex === pathHistory.length - 1}>
-                <ChevronRightIcon size={14} />
+                <ChevronRightIcon size={16} />
               </button>
             </div>
 
             <div className="view-toggle">
               <button className={`toolbar-btn ${viewMode === 'grid' ? 'active' : ''}`} onClick={() => setViewMode('grid')}>
-                <GridIcon size={14} />
+                <GridIcon size={16} />
               </button>
               <button className={`toolbar-btn ${viewMode === 'list' ? 'active' : ''}`} onClick={() => setViewMode('list')}>
-                <ListIcon size={14} />
+                <ListIcon size={16} />
               </button>
             </div>
 
@@ -931,19 +929,19 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               setModalInput('Untitled Folder');
               setActiveModal('create_folder');
             }} title="New Folder">
-              <NewFolderIcon size={16} />
+              <NewFolderIcon size={20} />
             </button>
 
             <button className="toolbar-btn" onClick={triggerUpload} title="Upload">
-              <UploadIcon size={16} />
+              <UploadIcon size={20} />
             </button>
 
             <button className="toolbar-btn" onClick={() => setShowDetails(!showDetails)} disabled={selectedItems.length !== 1} title="Get Info">
-              <InfoIcon size={16} />
+              <InfoIcon size={20} />
             </button>
 
             <div className="search-bar">
-              <SearchIcon size={12} />
+              <SearchIcon size={14} />
               <input 
                 type="text" 
                 placeholder="Search" 
@@ -1026,7 +1024,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   }}
                   style={{ borderRadius: '5px' }}
                 >
-                  Change Account Details...
+                  User Account Settings
                 </div>
 
                 <div 
@@ -1074,7 +1072,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               }}
               onDrop={(e) => handleDropOnSidebar(e, '')}
             >
-              {renderIcon('directory', 16)}
+              {renderIcon('directory', 20)}
               <span>Home</span>
             </div>
             <div 
@@ -1087,7 +1085,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               }}
               onDrop={(e) => handleDropOnSidebar(e, 'Trash')}
             >
-              <TrashIcon size={16} />
+              <TrashIcon size={20} />
               <span>Trash</span>
             </div>
           </div>
@@ -1104,7 +1102,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               }}
               onDrop={(e) => handleDropOnSidebar(e, 'Documents')}
             >
-              {renderIcon('directory', 16)}
+              {renderIcon('directory', 20)}
               <span>Documents</span>
             </div>
             <div 
@@ -1117,7 +1115,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               }}
               onDrop={(e) => handleDropOnSidebar(e, 'Downloads')}
             >
-              {renderIcon('directory', 16)}
+              {renderIcon('directory', 20)}
               <span>Downloads</span>
             </div>
           </div>

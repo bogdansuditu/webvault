@@ -247,40 +247,22 @@ body, html {
   position: relative;
 }
 
-/* Red, Yellow, Green macOS Window control dots */
-.window-controls {
-  display: flex;
-  gap: 8px;
-}
-
-.control-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  position: relative;
+/* Application Branding (Replacing window control dots) */
+.app-branding {
   display: flex;
   align-items: center;
-  justify-content: center;
+  cursor: default;
 }
 
-.dot-red { background-color: #ff5f56; }
-.dot-yellow { background-color: #ffbd2e; }
-.dot-green { background-color: #27c93f; }
-
-.control-dot::after {
-  content: '';
-  font-size: 8px;
-  font-weight: 700;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  color: rgba(0, 0, 0, 0.55);
+.app-branding img {
+  width: 32px;
+  height: 32px;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.window-controls:hover .dot-red::after { content: '×'; opacity: 1; }
-.window-controls:hover .dot-yellow::after { content: '−'; opacity: 1; }
-.window-controls:hover .dot-green::after { content: '+'; opacity: 1; }
+.app-branding:hover img {
+  transform: rotate(12deg) scale(1.08);
+}
 
 .window-title {
   position: absolute;
@@ -314,8 +296,8 @@ body, html {
   background: transparent;
   border: none;
   border-radius: 6px;
-  width: 32px;
-  height: 28px;
+  width: 36px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -338,8 +320,8 @@ body, html {
 }
 
 .toolbar-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   fill: currentColor;
 }
 
@@ -460,10 +442,10 @@ body, html {
 .sidebar-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 12px;
+  padding: 8px 10px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
@@ -480,8 +462,8 @@ body, html {
 }
 
 .sidebar-item svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   color: var(--accent-color);
 }
 
