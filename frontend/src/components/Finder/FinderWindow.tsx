@@ -264,29 +264,109 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   };
 
   const uploadFiles = async (fileList: FileList | File[]) => {
-    const formData = new FormData();
-    for (let i = 0; i < fileList.length; i++) {
-      formData.append('files', fileList[i]);
-    }
+    const filesArray = Array.from(fileList);
+    if (filesArray.length === 0) return;
 
-    setNotification({ message: 'Uploading assets...', progress: 10 });
-    
-    try {
-      const res = await fetch(`${apiBase}/api/files/upload?path=${encodeURIComponent(currentPath)}`, {
-        method: 'POST',
-        body: formData
+    // Helper function to upload a single file with progress tracking
+    const uploadSingleFile = (file: File, path: string, onProgress: (loaded: number, total: number) => void): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        formData.append('files', file);
+
+        xhr.withCredentials = true;
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            onProgress(e.loaded, e.total);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (data.success) {
+                resolve(data);
+              } else {
+                reject(new Error(data.error || 'Upload failed'));
+              }
+            } catch (err) {
+              reject(new Error('Invalid response from server'));
+            }
+          } else {
+            let errMsg = `Upload failed with status ${xhr.status}`;
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (data.error) errMsg = data.error;
+            } catch (e) {
+              if (xhr.status === 413) {
+                errMsg = 'File is too large for the server/proxy limit';
+              } else if (xhr.status === 504) {
+                errMsg = 'Gateway timeout - connection to NAS timed out';
+              } else if (xhr.status === 502) {
+                errMsg = 'Bad gateway - server is down or unreachable';
+              }
+            }
+            reject(new Error(errMsg));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error or connection lost'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload aborted'));
+        });
+
+        xhr.open('POST', `${apiBase}/api/files/upload?path=${encodeURIComponent(path)}`);
+        xhr.send(formData);
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setNotification({ message: 'Upload completed successfully!', progress: 100 });
-        setTimeout(() => setNotification(null), 2500);
-        fetchDirectory(currentPath);
-      } else {
-        throw new Error(data.error || 'Upload failed');
+    };
+
+    const fileSizes = filesArray.map(f => f.size);
+    const totalBytes = fileSizes.reduce((a, b) => a + b, 0);
+    const loadedBytesArray = new Array(filesArray.length).fill(0);
+
+    const updateOverallProgress = () => {
+      const currentLoadedBytes = loadedBytesArray.reduce((a, b) => a + b, 0);
+      const percent = totalBytes > 0 ? Math.round((currentLoadedBytes / totalBytes) * 100) : 0;
+      
+      let currentFileIndex = loadedBytesArray.findIndex((bytes, i) => bytes < fileSizes[i]);
+      if (currentFileIndex === -1) currentFileIndex = filesArray.length - 1;
+
+      setNotification({
+        message: `Uploading: File ${currentFileIndex + 1} of ${filesArray.length} (${percent}%)`,
+        progress: percent
+      });
+    };
+
+    setNotification({
+      message: `Uploading: File 1 of ${filesArray.length} (0%)`,
+      progress: 0
+    });
+
+    try {
+      for (let i = 0; i < filesArray.length; i++) {
+        const file = filesArray[i];
+        
+        await uploadSingleFile(file, currentPath, (loaded, total) => {
+          loadedBytesArray[i] = Math.min(loaded, file.size);
+          updateOverallProgress();
+        });
+        
+        loadedBytesArray[i] = file.size;
+        updateOverallProgress();
       }
+
+      setNotification({ message: 'Upload completed successfully!', progress: 100 });
+      setTimeout(() => setNotification(null), 2500);
+      fetchDirectory(currentPath);
     } catch (err: any) {
       setNotification({ message: `Upload failed: ${err.message}` });
-      setTimeout(() => setNotification(null), 4000);
+      setTimeout(() => setNotification(null), 5000);
+      fetchDirectory(currentPath);
     }
   };
 
