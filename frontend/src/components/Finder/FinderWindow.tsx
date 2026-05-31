@@ -223,7 +223,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const handleDoubleClick = async (item: FileItem) => {
     if (item.isDirectory) {
       navigateTo(item.relativePath);
-    } else if (item.mimeType === 'image' || item.mimeType === 'text') {
+    } else if (item.mimeType === 'image' || item.mimeType === 'text' || item.mimeType === 'audio' || item.mimeType === 'video') {
       setViewingFile(item);
       setViewerVisible(true);
       if (item.mimeType === 'text') {
@@ -1909,6 +1909,57 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                         </div>
                       )}
                     </>
+                  )}
+
+                  {/* Audio Preview Screen */}
+                  {viewingFile.mimeType === 'audio' && (
+                    <div style={{ display: 'flex', flex: 1, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '40px' }}>
+                      <div 
+                        style={{ 
+                          width: '120px', 
+                          height: '120px', 
+                          borderRadius: '50%', 
+                          background: 'linear-gradient(135deg, #FF5E62 0%, #FF9966 100%)',
+                          boxShadow: '0 15px 30px rgba(255, 94, 98, 0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '48px',
+                          color: 'white',
+                          animation: 'dialogScale 0.3s ease-out'
+                        }}
+                      >
+                        🎵
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{viewingFile.name}</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{formatBytes(viewingFile.size)} • Audio Track</span>
+                      </div>
+                      <audio 
+                        src={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}`} 
+                        controls 
+                        autoPlay 
+                        style={{ width: '80%', maxWidth: '460px', marginTop: '10px' }} 
+                      />
+                    </div>
+                  )}
+
+                  {/* Video Preview Screen */}
+                  {viewingFile.mimeType === 'video' && (
+                    <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', padding: '30px' }}>
+                      <video 
+                        src={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}`} 
+                        controls 
+                        autoPlay 
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '100%',
+                          borderRadius: '8px',
+                          boxShadow: '0 15px 35px rgba(0,0,0,0.3)',
+                          outline: 'none'
+                        }} 
+                      />
+                    </div>
                   )}
                 </>
               )}

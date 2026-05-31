@@ -82,6 +82,8 @@ function getMimeType(filename: string, isDirectory: boolean): string {
     case '.wav':
     case '.ogg':
     case '.m4a':
+    case '.flac':
+    case '.aac':
       return 'audio';
     case '.mp4':
     case '.mov':
