@@ -62,11 +62,14 @@ function getMimeType(filename: string, isDirectory: boolean): string {
     case '.webp':
     case '.svg':
     case '.heic':
+    case '.tiff':
+    case '.tif':
       return 'image';
     case '.pdf':
       return 'pdf';
     case '.txt':
     case '.md':
+    case '.csv':
     case '.json':
     case '.js':
     case '.ts':

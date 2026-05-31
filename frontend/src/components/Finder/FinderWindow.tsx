@@ -6,6 +6,9 @@ import {
   IconSetContext
 } from '../../assets/icons';
 import { ContextMenu, ContextMenuItem } from '../ContextMenu/ContextMenu';
+import { MarkdownPreview } from './MarkdownPreview';
+import { CSVPreview } from './CSVPreview';
+import { TiffPreview } from './TiffPreview';
 
 interface FileItem {
   name: string;
@@ -105,6 +108,24 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const [activeModal, setActiveModal] = useState<'create_folder' | 'rename' | 'confirm_delete' | 'compress' | null>(null);
   const [modalInput, setModalInput] = useState('');
   const [targetFile, setTargetFile] = useState<FileItem | null>(null);
+
+  // Column Sorting States
+  const [sortField, setSortField] = useState<'name' | 'size' | 'mimeType' | 'mtime' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (field: 'name' | 'size' | 'mimeType' | 'mtime') => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIndicator = (field: 'name' | 'size' | 'mimeType' | 'mtime') => {
+    if (sortField !== field) return null;
+    return sortDirection === 'asc' ? ' ↑' : ' ↓';
+  };
 
   // Clipboard Paste Helper ref
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -892,8 +913,34 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     });
   };
 
-  // Filter files by search
-  const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Filter and Sort files by search and active columns
+  const filteredFiles = [...files]
+    .filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (!sortField) return 0;
+
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+
+      // Format comparisons based on field type
+      if (sortField === 'name') {
+        aVal = (aVal || '').toString().toLowerCase();
+        bVal = (bVal || '').toString().toLowerCase();
+      } else if (sortField === 'size') {
+        aVal = a.isDirectory ? -1 : (Number(aVal) || 0);
+        bVal = b.isDirectory ? -1 : (Number(bVal) || 0);
+      } else if (sortField === 'mimeType') {
+        aVal = (aVal || '').toString().toLowerCase();
+        bVal = (bVal || '').toString().toLowerCase();
+      } else if (sortField === 'mtime') {
+        aVal = new Date(aVal || 0).getTime();
+        bVal = new Date(bVal || 0).getTime();
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
 
   // Render sidebar paths active state checker
   const isSidebarActive = (path: string) => {
@@ -1312,13 +1359,21 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
             </div>
           ) : (
             /* List View */
-            <table className="list-view">
+             <table className="list-view">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Size</th>
-                  <th>Kind</th>
-                  <th>Date Modified</th>
+                  <th onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Name{renderSortIndicator('name')}
+                  </th>
+                  <th onClick={() => handleSort('size')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Size{renderSortIndicator('size')}
+                  </th>
+                  <th onClick={() => handleSort('mimeType')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Kind{renderSortIndicator('mimeType')}
+                  </th>
+                  <th onClick={() => handleSort('mtime')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Date Modified{renderSortIndicator('mtime')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1663,9 +1718,9 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(15px)',
-            WebkitBackdropFilter: 'blur(15px)'
+            background: 'rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)'
           }}
         >
           <div 
@@ -1674,114 +1729,189 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               animation: 'dialogScale 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
-              gap: '15px'
+              background: 'var(--card-bg)',
+              backdropFilter: 'var(--glass-blur)',
+              WebkitBackdropFilter: 'var(--glass-blur)',
+              border: 'var(--border-window)',
+              borderRadius: '12px',
+              width: '90vw',
+              height: '90vh',
+              boxShadow: '0 30px 70px rgba(0,0,0,0.35)',
+              overflow: 'hidden'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Text Preview Monospace Card */}
-            {viewingFile.mimeType === 'text' && (
-              <div 
-                style={{
-                  background: 'var(--card-bg)',
-                  backdropFilter: 'var(--glass-blur)',
-                  WebkitBackdropFilter: 'var(--glass-blur)',
-                  border: 'var(--border-window)',
-                  borderRadius: '12px',
-                  padding: '24px',
-                  width: '640px',
-                  height: '480px',
-                  maxWidth: '90vw',
-                  maxHeight: '80vh',
-                  overflowY: 'auto',
-                  textAlign: 'left',
-                  fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace',
-                  fontSize: '13px',
-                  lineHeight: '1.5',
-                  color: 'var(--text-primary)',
-                  boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-                  whiteSpace: 'pre-wrap'
-                }}
-              >
-                {viewerLoading ? (
-                  <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-                    Loading document content...
-                  </div>
-                ) : (
-                  viewerTextContent
-                )}
-              </div>
-            )}
-
-            {/* Image Preview Screen */}
-            {viewingFile.mimeType === 'image' && (
-              <img 
-                src={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}`} 
-                alt={viewingFile.name} 
-                style={{
-                  maxWidth: '85vw',
-                  maxHeight: '75vh',
-                  borderRadius: '8px',
-                  boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
-                  objectFit: 'contain'
-                }} 
-              />
-            )}
-
-            {/* Control Info Bar */}
+            {/* Unified macOS Quick Look Header */}
             <div 
               style={{
-                background: 'rgba(30, 30, 30, 0.85)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-                borderRadius: '20px',
-                padding: '8px 20px',
-                color: '#f5f5f7',
-                fontSize: '12.5px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                border: '1px solid rgba(255,255,255,0.1)'
+                justifyContent: 'space-between',
+                padding: '0 20px',
+                height: '52px',
+                borderBottom: '1px solid var(--border-inner)',
+                background: 'var(--bg-toolbar)',
+                flexShrink: 0
               }}
             >
-              <span style={{ fontWeight: 500 }}>{viewingFile.name}</span>
-              <span style={{ opacity: 0.35 }}>|</span>
-              <button 
-                onClick={() => triggerDownload([viewingFile])} 
+              {/* Left macOS Window Dots */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  onClick={() => {
+                    setViewerVisible(false);
+                    setViewingFile(null);
+                    setViewerTextContent('');
+                  }}
+                  style={{
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: '#ff5f56',
+                    border: '1px solid #e0443e',
+                    cursor: 'pointer',
+                    padding: 0,
+                    outline: 'none'
+                  }}
+                  title="Close Preview"
+                />
+                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ffbd2e', border: '1px solid #dea123' }} />
+                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#27c93f', border: '1px solid #1aab29' }} />
+              </div>
+
+              {/* Center Title - File Name */}
+              <div 
                 style={{ 
-                  background: 'transparent', 
-                  border: 'none', 
-                  color: 'var(--accent-color)', 
+                  fontSize: '13.5px', 
                   fontWeight: 600, 
-                  cursor: 'pointer', 
-                  outline: 'none',
-                  padding: '2px 6px',
-                  borderRadius: '4px'
+                  color: 'var(--text-primary)',
+                  maxWidth: '50%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
                 }}
               >
-                Download
-              </button>
-              <span style={{ opacity: 0.35 }}>|</span>
-              <button 
-                onClick={() => {
-                  setViewerVisible(false);
-                  setViewingFile(null);
-                  setViewerTextContent('');
-                }} 
-                style={{ 
-                  background: 'transparent', 
-                  border: 'none', 
-                  color: '#ff453a', 
-                  fontWeight: 600, 
-                  cursor: 'pointer', 
-                  outline: 'none',
-                  padding: '2px 6px',
-                  borderRadius: '4px'
-                }}
-              >
-                Close
-              </button>
+                {viewingFile.name}
+              </div>
+
+              {/* Right Action Menu */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  onClick={() => triggerDownload([viewingFile])} 
+                  style={{ 
+                    background: 'var(--accent-color)', 
+                    border: 'none', 
+                    color: 'white', 
+                    fontWeight: 600, 
+                    cursor: 'pointer', 
+                    outline: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'var(--accent-hover)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'var(--accent-color)'}
+                >
+                  Download
+                </button>
+                <button 
+                  onClick={() => {
+                    setViewerVisible(false);
+                    setViewingFile(null);
+                    setViewerTextContent('');
+                  }} 
+                  style={{ 
+                    background: 'var(--sidebar-active)', 
+                    border: 'none', 
+                    color: 'var(--text-primary)', 
+                    fontWeight: 600, 
+                    cursor: 'pointer', 
+                    outline: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'var(--item-hover)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'var(--sidebar-active)'}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Look Content Body */}
+            <div 
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
+              {viewerLoading ? (
+                <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                  Loading document content...
+                </div>
+              ) : (
+                <>
+                  {/* Markdown File Preview */}
+                  {viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.md') && (
+                    <div style={{ padding: '30px 40px', width: '100%', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
+                      <MarkdownPreview content={viewerTextContent} isDarkMode={isDarkMode} />
+                    </div>
+                  )}
+
+                  {/* CSV File Preview */}
+                  {viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.csv') && (
+                    <CSVPreview content={viewerTextContent} />
+                  )}
+
+                  {/* Standard Text Preview */}
+                  {viewingFile.mimeType === 'text' && !viewingFile.name.toLowerCase().endsWith('.md') && !viewingFile.name.toLowerCase().endsWith('.csv') && (
+                    <div 
+                      style={{
+                        padding: '30px',
+                        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace',
+                        fontSize: '13px',
+                        lineHeight: '1.6',
+                        color: 'var(--text-primary)',
+                        whiteSpace: 'pre-wrap',
+                        textAlign: 'left'
+                      }}
+                    >
+                      {viewerTextContent}
+                    </div>
+                  )}
+
+                  {/* Image Preview Screen */}
+                  {viewingFile.mimeType === 'image' && (
+                    <>
+                      {(viewingFile.name.toLowerCase().endsWith('.tiff') || viewingFile.name.toLowerCase().endsWith('.tif')) ? (
+                        <TiffPreview 
+                          url={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}`}
+                          name={viewingFile.name}
+                        />
+                      ) : (
+                        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', padding: '30px' }}>
+                          <img 
+                            src={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}`} 
+                            alt={viewingFile.name} 
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '100%',
+                              borderRadius: '8px',
+                              boxShadow: '0 15px 35px rgba(0,0,0,0.2)',
+                              objectFit: 'contain'
+                            }} 
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
