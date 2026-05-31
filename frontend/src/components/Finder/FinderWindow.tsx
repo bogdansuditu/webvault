@@ -105,9 +105,14 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   });
 
   // Modal Dialog States
-  const [activeModal, setActiveModal] = useState<'create_folder' | 'rename' | 'confirm_delete' | 'compress' | null>(null);
+  const [activeModal, setActiveModal] = useState<'create_folder' | 'rename' | 'confirm_delete' | 'compress' | 'share' | null>(null);
   const [modalInput, setModalInput] = useState('');
   const [targetFile, setTargetFile] = useState<FileItem | null>(null);
+
+  // Sharing States
+  const [passwordInput, setPasswordInput] = useState('');
+  const [protectWithPassword, setProtectWithPassword] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState('');
 
   // Column Sorting States
   const [sortField, setSortField] = useState<'name' | 'size' | 'mimeType' | 'mtime' | null>(null);
@@ -506,6 +511,36 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     }
   };
 
+  const executeGenerateShare = async () => {
+    const targets = targetFile ? [targetFile] : selectedItems;
+    if (targets.length === 0) return;
+
+    const paths = targets.map(t => t.relativePath);
+    const domain = window.location.origin;
+
+    try {
+      const res = await fetch(`${apiBase}/api/share/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: paths,
+          hasPassword: protectWithPassword,
+          password: protectWithPassword ? passwordInput : undefined,
+          domain
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGeneratedLink(data.shortLink);
+      } else {
+        alert(data.error || 'Failed to generate sharing link.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Network error generating sharing link.');
+    }
+  };
+
   const executeDecompress = async (item: FileItem) => {
     setNotification({ message: 'Extracting archive content...' });
     try {
@@ -840,6 +875,16 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           setActiveModal('rename');
         }
       });
+      menuItems.push({
+        label: 'Share Item...',
+        onClick: () => {
+          setTargetFile(single);
+          setPasswordInput('');
+          setProtectWithPassword(false);
+          setGeneratedLink('');
+          setActiveModal('share');
+        }
+      });
       
       if (single.name.endsWith('.zip')) {
         menuItems.push({
@@ -876,6 +921,16 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           setTargetFile(null);
           setModalInput('Archive');
           setActiveModal('compress');
+        }
+      });
+      menuItems.push({
+        label: 'Share Items...',
+        onClick: () => {
+          setTargetFile(null); // Indicates multiple items
+          setPasswordInput('');
+          setProtectWithPassword(false);
+          setGeneratedLink('');
+          setActiveModal('share');
         }
       });
       menuItems.push({
@@ -1594,6 +1649,117 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               </button>
               <button className="dialog-btn btn-confirm" onClick={executeRename}>
                 Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'share' && (
+        <div className="modal-overlay">
+          <div className="mac-dialog" style={{ width: '360px', gap: '15px' }}>
+            <h3 className="dialog-title">
+              {targetFile ? 'Share Item' : 'Share Selected Items'}
+            </h3>
+            
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'left', lineHeight: '1.4' }}>
+              {targetFile 
+                ? `Create a secure share link for "${targetFile.name}".`
+                : `Create a secure share link for ${selectedItems.length} items.`}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left' }}>
+              {/* Generated Link Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span className="details-label" style={{ fontSize: '10px' }}>Generated Share Link</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    className="dialog-input"
+                    placeholder="Link will appear here"
+                    value={generatedLink}
+                    readOnly
+                    style={{ flex: 1, background: 'var(--sidebar-active)' }}
+                  />
+                  {generatedLink && (
+                    <button
+                      className="dialog-btn btn-confirm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedLink);
+                        setNotification({ message: 'Copied link to clipboard!' });
+                        setTimeout(() => setNotification(null), 2500);
+                      }}
+                      style={{ flex: 'none', padding: '6px 12px', width: 'auto' }}
+                    >
+                      Copy
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Password Protection Option */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
+                <input
+                  type="checkbox"
+                  id="protect-checkbox"
+                  checked={protectWithPassword}
+                  onChange={(e) => {
+                    setProtectWithPassword(e.target.checked);
+                    if (!e.target.checked) setPasswordInput('');
+                  }}
+                  style={{ cursor: 'pointer' }}
+                />
+                <label 
+                  htmlFor="protect-checkbox" 
+                  style={{ fontSize: '12.5px', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 500 }}
+                >
+                  Protect with password
+                </label>
+              </div>
+
+              {/* Password Input Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span className="details-label" style={{ fontSize: '10px', color: protectWithPassword ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                  Password
+                </span>
+                <input
+                  type="password"
+                  className="dialog-input"
+                  placeholder={protectWithPassword ? "Enter security password" : "Password protection disabled"}
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  disabled={!protectWithPassword}
+                  style={{
+                    opacity: protectWithPassword ? 1 : 0.5,
+                    cursor: protectWithPassword ? 'text' : 'not-allowed'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="dialog-buttons" style={{ marginTop: '10px' }}>
+              <button 
+                className="dialog-btn btn-cancel" 
+                onClick={() => {
+                  setActiveModal(null);
+                  setTargetFile(null);
+                  setPasswordInput('');
+                  setProtectWithPassword(false);
+                  setGeneratedLink('');
+                }}
+              >
+                Close
+              </button>
+              <button 
+                className="dialog-btn btn-confirm" 
+                onClick={executeGenerateShare}
+                disabled={protectWithPassword && !passwordInput.trim()}
+                style={{
+                  opacity: (protectWithPassword && !passwordInput.trim()) ? 0.5 : 1,
+                  cursor: (protectWithPassword && !passwordInput.trim()) ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Generate Link
               </button>
             </div>
           </div>

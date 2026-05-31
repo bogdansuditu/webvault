@@ -39,6 +39,7 @@ RUN mkdir -p /app/storage /app/config
 
 # Copy default theme configuration template directly to CONFIG_DIR
 COPY config/theme.json /app/config/theme.json
+COPY config/shares.json /app/config/shares.json
 
 # Configure runtime details
 ENV PORT=8080

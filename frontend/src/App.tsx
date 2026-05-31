@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Login } from './components/Login';
 import { FinderWindow } from './components/Finder/FinderWindow';
+import { ShareRecipientPage } from './components/Finder/ShareRecipientPage';
 import { ShieldIcon } from './assets/icons';
 
 // API base: in production we serve same-origin, in development we use local 8080 proxy or explicit address
 const API_BASE = ''; 
 
 export default function App() {
+  // Detect public sharing links
+  const pathParts = window.location.pathname.split('/');
+  const isShareRoute = pathParts[1] === 's' && !!pathParts[2];
+  const shareSlug = isShareRoute ? pathParts[2] : null;
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<string>('');
   const [displayName, setDisplayName] = useState<string>('');
@@ -101,7 +107,7 @@ export default function App() {
     setDisplayName('');
   };
 
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null && !isShareRoute) {
     return (
       <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: '#1c1c1e', color: 'white', fontFamily: 'system-ui' }}>
         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center' }}>
@@ -114,7 +120,9 @@ export default function App() {
 
   return (
     <div className="desktop-container">
-      {!isAuthenticated ? (
+      {isShareRoute ? (
+        <ShareRecipientPage slug={shareSlug!} apiBase={API_BASE} />
+      ) : !isAuthenticated ? (
         <Login onLoginSuccess={handleLoginSuccess} apiBase={API_BASE} />
       ) : (
         <FinderWindow 

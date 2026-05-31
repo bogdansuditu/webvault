@@ -10,6 +10,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - APP_USER=${APP_USER}
       - APP_PASSWORD_HASH=${APP_PASSWORD_HASH}
+      - SHARE_SECRET=${SHARE_SECRET}
+      - SHARE_MAX_USES=${SHARE_MAX_USES}
     volumes:
       - ./storage:/app/storage
       - ./config:/app/config

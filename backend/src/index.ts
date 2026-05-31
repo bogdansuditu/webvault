@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
@@ -471,6 +472,237 @@ app.get('/api/files/download', requireFullAuth, async (req, res) => {
 // Stream Upload files (handles single & multi-file upload)
 app.post('/api/files/upload', requireFullAuth, upload.array('files'), (req, res) => {
   res.json({ success: true, uploaded: req.files });
+});
+
+
+// ==========================================
+// File & Folder Sharing Registry & Cryptography
+// ==========================================
+
+const SHARES_FILE_PATH = path.join(CONFIG_DIR, 'shares.json');
+const IV_LENGTH = 16;
+
+interface ShareRegistry {
+  shares: {
+    [slug: string]: {
+      encryptedPayload: string;
+      isPasswordProtected: boolean;
+      failedAttempts: number;
+      usesCount: number;
+    }
+  };
+  banned: string[];
+  expired: string[];
+}
+
+function loadShares(): ShareRegistry {
+  try {
+    if (fs.existsSync(SHARES_FILE_PATH)) {
+      const data = fs.readFileSync(SHARES_FILE_PATH, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to read shares.json:', err);
+  }
+  return { shares: {}, banned: [], expired: [] };
+}
+
+function saveShares(registry: ShareRegistry): void {
+  try {
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    fs.writeFileSync(SHARES_FILE_PATH, JSON.stringify(registry, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save shares.json:', err);
+  }
+}
+
+// AES-256-CBC Encryption helpers
+function deriveKey(secret: string): Buffer {
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+function encrypt(text: string, secret: string): string {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const key = deriveKey(secret);
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decrypt(ciphertextWithIv: string, secret: string): string {
+  const parts = ciphertextWithIv.split(':');
+  if (parts.length !== 2) {
+    throw new Error('Invalid ciphertext format');
+  }
+  const iv = Buffer.from(parts[0], 'hex');
+  const encryptedText = Buffer.from(parts[1], 'hex');
+  const key = deriveKey(secret);
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  let decrypted = decipher.update(encryptedText, undefined, 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// 1. Generate Sharing Link (Authenticated)
+app.post('/api/share/generate', requireFullAuth, (req, res) => {
+  const { items, hasPassword, password, domain } = req.body;
+  
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Selected items list is required.' });
+  }
+
+  if (!domain) {
+    return res.status(400).json({ error: 'Origin domain is required.' });
+  }
+
+  const config = loadConfig();
+  
+  try {
+    const payloadObj = {
+      items,
+      timestamp: Date.now()
+    };
+    const payloadStr = JSON.stringify(payloadObj);
+    const secret = hasPassword && password
+      ? password + config.shareSecret
+      : config.shareSecret;
+      
+    const encryptedPayload = encrypt(payloadStr, secret);
+    
+    // Generate unique random 6-character slug
+    const registry = loadShares();
+    let slug = crypto.randomBytes(3).toString('hex'); // 6 chars hex
+    while (registry.shares[slug] || registry.banned.includes(slug) || registry.expired.includes(slug)) {
+      slug = crypto.randomBytes(3).toString('hex');
+    }
+    
+    registry.shares[slug] = {
+      encryptedPayload,
+      isPasswordProtected: !!(hasPassword && password),
+      failedAttempts: 0,
+      usesCount: 0
+    };
+    
+    saveShares(registry);
+    
+    const shortLink = `${domain}/s/${slug}`;
+    res.json({ success: true, shortLink, slug });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to generate sharing link.' });
+  }
+});
+
+// 2. Fetch Share Metadata (Public)
+app.get('/api/share/metadata/:slug', (req, res) => {
+  const { slug } = req.params;
+  const registry = loadShares();
+  
+  if (registry.banned.includes(slug)) {
+    return res.status(403).json({ success: false, status: 'banned', error: 'This sharing link has been locked permanently due to too many failed password attempts.' });
+  }
+  
+  if (registry.expired.includes(slug)) {
+    return res.status(410).json({ success: false, status: 'expired', error: 'This sharing link has expired and is no longer active.' });
+  }
+  
+  const share = registry.shares[slug];
+  if (!share) {
+    return res.status(404).json({ success: false, status: 'not_found', error: 'Sharing link not found or inactive.' });
+  }
+  
+  res.json({
+    success: true,
+    isPasswordProtected: share.isPasswordProtected
+  });
+});
+
+// 3. Download Shared Archive (Public, Password Verified)
+app.post('/api/share/download/:slug', async (req, res) => {
+  const { slug } = req.params;
+  const { password } = req.body;
+  const registry = loadShares();
+  
+  if (registry.banned.includes(slug)) {
+    return res.status(403).json({ success: false, status: 'banned', error: 'This sharing link has been locked permanently.' });
+  }
+  
+  if (registry.expired.includes(slug)) {
+    return res.status(410).json({ success: false, status: 'expired', error: 'This sharing link has expired.' });
+  }
+  
+  const share = registry.shares[slug];
+  if (!share) {
+    return res.status(404).json({ success: false, error: 'Sharing link not found or inactive.' });
+  }
+  
+  const config = loadConfig();
+  const secret = share.isPasswordProtected && password
+    ? password + config.shareSecret
+    : config.shareSecret;
+    
+  try {
+    // Attempt zero-knowledge decryption
+    const decrypted = decrypt(share.encryptedPayload, secret);
+    const payload = JSON.parse(decrypted);
+    
+    // Success! Reset failed attempts
+    share.failedAttempts = 0;
+    
+    // Increment uses and check limit
+    share.usesCount += 1;
+    if (share.usesCount >= config.shareMaxUses) {
+      registry.expired.push(slug);
+      delete registry.shares[slug];
+    }
+    saveShares(registry);
+    
+    // Compile ad-hoc zip and stream download to client
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="webvault_share_${slug}.zip"`);
+    
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    archive.on('error', (err: any) => {
+      throw err;
+    });
+    archive.pipe(res);
+    
+    for (const itemRelativePath of payload.items) {
+      try {
+        const safePath = fileService.resolveSafePath(itemRelativePath);
+        const name = path.basename(safePath);
+        const stat = fs.statSync(safePath);
+        if (stat.isDirectory()) {
+          archive.directory(safePath, name);
+        } else {
+          archive.file(safePath, { name });
+        }
+      } catch (fileErr) {
+        console.warn(`Sharing skip unresolved path "${itemRelativePath}":`, fileErr);
+      }
+    }
+    
+    archive.finalize();
+  } catch (err: any) {
+    // Decryption failed -> wrong password
+    if (share.isPasswordProtected) {
+      share.failedAttempts += 1;
+      
+      if (share.failedAttempts >= 4) {
+        registry.banned.push(slug);
+        delete registry.shares[slug];
+        saveShares(registry);
+        return res.status(403).json({ success: false, status: 'banned', error: 'Maximum password attempts reached. This link is now locked permanently.' });
+      }
+      
+      saveShares(registry);
+      return res.status(401).json({ success: false, error: `Invalid password. ${4 - share.failedAttempts} attempts remaining.` });
+    }
+    
+    res.status(500).json({ error: 'Failed to decrypt sharing payload.' });
+  }
 });
 
 
