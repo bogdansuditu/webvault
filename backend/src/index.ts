@@ -386,6 +386,20 @@ app.post('/api/files/empty-trash', requireFullAuth, (req, res) => {
   }
 });
 
+// Put back item to its original location
+app.post('/api/files/put-back', requireFullAuth, (req, res) => {
+  const { path } = req.body;
+  if (!path) {
+    return res.status(400).json({ error: 'path is required' });
+  }
+  try {
+    const restored = fileService.putBack(path);
+    res.json({ success: true, restored });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Zip Items
 app.post('/api/files/compress', requireFullAuth, async (req, res) => {
   const { path: parentPath, items, name } = req.body;
@@ -459,7 +473,12 @@ app.get('/api/files/download', requireFullAuth, async (req, res) => {
         archive.finalize();
       } else {
         // Single file -> send direct
-        res.download(safePath, path.basename(safePath));
+        const inline = req.query.inline === 'true';
+        if (inline) {
+          res.sendFile(safePath);
+        } else {
+          res.download(safePath, path.basename(safePath));
+        }
       }
     }
   } catch (err: any) {

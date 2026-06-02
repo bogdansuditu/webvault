@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
-import { STORAGE_DIR } from './config.js';
+import { STORAGE_DIR, CONFIG_DIR } from './config.js';
 
 // Resolve and sanitize paths to ensure they stay within the storage root
 export function resolveSafePath(relativePath: string = ''): string {
@@ -48,6 +48,7 @@ export interface FileItem {
   mtime: Date;
   birthtime: Date;
   mimeType?: string;
+  hasTrashOrigin?: boolean;
 }
 
 // Map extensions to visual groups / mime types
@@ -117,6 +118,7 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
 
   const files = fs.readdirSync(safePath);
   const items: FileItem[] = [];
+  const origins = loadTrashOrigins();
 
   for (const file of files) {
     // Hide system files and the Trash directory in default listings
@@ -142,6 +144,7 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
         mtime: itemStat.mtime,
         birthtime: itemStat.birthtime,
         mimeType: getMimeType(file, itemStat.isDirectory()),
+        hasTrashOrigin: !!origins[itemRelativePath]
       });
     } catch (e) {
       // Skip problematic files
@@ -217,7 +220,14 @@ export function moveToTrash(itemRelativePath: string): string {
   }
 
   fs.renameSync(safeItem, targetPath);
-  return path.relative(resolveSafePath(''), targetPath);
+  const trashRelative = path.relative(resolveSafePath(''), targetPath);
+
+  // Save the original location mapping
+  const origins = loadTrashOrigins();
+  origins[trashRelative] = itemRelativePath;
+  saveTrashOrigins(origins);
+
+  return trashRelative;
 }
 
 // Delete permanently
@@ -234,6 +244,11 @@ export function deletePermanently(itemRelativePath: string): string {
   } else {
     fs.unlinkSync(safeItem);
   }
+
+  // Clean up stored mapping
+  const origins = loadTrashOrigins();
+  delete origins[itemRelativePath];
+  saveTrashOrigins(origins);
 
   return itemRelativePath;
 }
@@ -253,6 +268,89 @@ export function emptyTrash(): void {
       }
     }
   }
+
+  // Reset all origins mapping
+  saveTrashOrigins({});
+}
+
+// Trash Origins mapping database
+const TRASH_ORIGINS_FILE = path.join(CONFIG_DIR, 'trash_origins.json');
+
+interface TrashOriginsRegistry {
+  [trashPath: string]: string;
+}
+
+function loadTrashOrigins(): TrashOriginsRegistry {
+  try {
+    if (fs.existsSync(TRASH_ORIGINS_FILE)) {
+      const data = fs.readFileSync(TRASH_ORIGINS_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to read trash_origins.json:', err);
+  }
+  return {};
+}
+
+function saveTrashOrigins(origins: TrashOriginsRegistry): void {
+  try {
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    fs.writeFileSync(TRASH_ORIGINS_FILE, JSON.stringify(origins, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save trash_origins.json:', err);
+  }
+}
+
+// Put back item to its original location
+export function putBack(itemRelativePath: string): string {
+  const safeTrashItem = resolveSafePath(itemRelativePath);
+  const trashRoot = path.join(resolveSafePath(''), '.TrashFolder');
+
+  if (!safeTrashItem.startsWith(trashRoot)) {
+    throw new Error('Item is not inside Trash');
+  }
+
+  if (!fs.existsSync(safeTrashItem)) {
+    throw new Error('Item does not exist in Trash');
+  }
+
+  const origins = loadTrashOrigins();
+  const originalRelativePath = origins[itemRelativePath];
+
+  if (!originalRelativePath) {
+    throw new Error('Original location not found for this item');
+  }
+
+  const destinationSafe = resolveSafePath(originalRelativePath);
+  const destDir = path.dirname(destinationSafe);
+
+  // Recreate destination directory if it was deleted
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+
+  // Handle collision at destination
+  let finalDest = destinationSafe;
+  if (fs.existsSync(finalDest)) {
+    const name = path.basename(destinationSafe);
+    const ext = path.extname(name);
+    const base = path.basename(name, ext);
+    let counter = 1;
+    while (fs.existsSync(finalDest)) {
+      finalDest = path.join(destDir, `${base}_copy_${counter}${ext}`);
+      counter++;
+    }
+  }
+
+  fs.renameSync(safeTrashItem, finalDest);
+
+  // Clean up registration mapping
+  delete origins[itemRelativePath];
+  saveTrashOrigins(origins);
+
+  return path.relative(resolveSafePath(''), finalDest);
 }
 
 // Zip items into a .zip archive inside current folder

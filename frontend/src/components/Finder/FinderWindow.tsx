@@ -18,6 +18,7 @@ interface FileItem {
   mtime: string;
   birthtime: string;
   mimeType: string;
+  hasTrashOrigin?: boolean;
 }
 
 interface FinderWindowProps {
@@ -225,29 +226,41 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     setContextMenu({ ...contextMenu, visible: false });
   };
 
+  const updateActivePreview = async (item: FileItem | null) => {
+    setViewingFile(item);
+    if (!item) {
+      setViewerTextContent('');
+      return;
+    }
+    if (item.mimeType === 'text') {
+      setViewerLoading(true);
+      try {
+        const res = await fetch(`${apiBase}/api/files/download?path=${encodeURIComponent(item.relativePath)}`);
+        const text = await res.text();
+        setViewerTextContent(text);
+      } catch (err) {
+        setViewerTextContent('Failed to load text content.');
+      } finally {
+        setViewerLoading(false);
+      }
+    } else {
+      setViewerTextContent('');
+    }
+  };
+
   const handleDoubleClick = async (item: FileItem) => {
     if (item.isDirectory) {
       navigateTo(item.relativePath);
-    } else if (item.mimeType === 'image' || item.mimeType === 'text' || item.mimeType === 'audio' || item.mimeType === 'video') {
-      setViewingFile(item);
+    } else if (item.mimeType === 'image' || item.mimeType === 'text' || item.mimeType === 'audio' || item.mimeType === 'video' || item.mimeType === 'pdf') {
       setViewerVisible(true);
-      if (item.mimeType === 'text') {
-        setViewerLoading(true);
-        try {
-          const res = await fetch(`${apiBase}/api/files/download?path=${encodeURIComponent(item.relativePath)}`);
-          const text = await res.text();
-          setViewerTextContent(text);
-        } catch (err) {
-          setViewerTextContent('Failed to load text content.');
-        } finally {
-          setViewerLoading(false);
-        }
-      }
+      updateActivePreview(item);
     } else {
       // Direct Download file for other types
       triggerDownload([item]);
     }
   };
+
+
 
   // Helper file icons mapper
   const renderIcon = (mimeType: string, size = 32) => {
@@ -467,6 +480,53 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       setActiveModal(null);
       setTargetFile(null);
     }
+  };
+
+  const executePutBack = async (item: FileItem) => {
+    setNotification({ message: `Restoring "${item.name}"...` });
+    try {
+      const res = await fetch(`${apiBase}/api/files/put-back`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: item.relativePath })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNotification({ message: `Restored "${item.name}" to original location.` });
+        setTimeout(() => setNotification(null), 2500);
+        setSelectedItems([]);
+        fetchDirectory(currentPath);
+      } else {
+        throw new Error(data.error || 'Put back failed');
+      }
+    } catch (err: any) {
+      setNotification({ message: `Failed to put back: ${err.message}` });
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const executePutBackMultiple = async (items: FileItem[]) => {
+    setNotification({ message: `Restoring ${items.length} items...` });
+    let successCount = 0;
+    for (const item of items) {
+      if (!item.hasTrashOrigin) continue;
+      try {
+        const res = await fetch(`${apiBase}/api/files/put-back`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: item.relativePath })
+        });
+        if (res.ok) {
+          successCount++;
+        }
+      } catch (e) {
+        console.error(`Failed to restore ${item.name}`, e);
+      }
+    }
+    setNotification({ message: `Restored ${successCount} of ${items.length} items.` });
+    setTimeout(() => setNotification(null), 2500);
+    setSelectedItems([]);
+    fetchDirectory(currentPath);
   };
 
   const executeEmptyTrash = async () => {
@@ -863,80 +923,121 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         label: 'Open',
         onClick: () => handleDoubleClick(single)
       });
+      const isInsideTrash = currentPath.includes('.TrashFolder') || currentPath === 'Trash';
+
       menuItems.push({
         label: 'Download',
         onClick: () => triggerDownload([single])
       });
-      menuItems.push({
-        label: 'Rename...',
-        onClick: () => {
-          setTargetFile(single);
-          setModalInput(single.name);
-          setActiveModal('rename');
+
+      if (isInsideTrash) {
+        if (single.hasTrashOrigin) {
+          menuItems.push({
+            label: 'Put Back',
+            onClick: () => executePutBack(single)
+          });
         }
-      });
-      menuItems.push({
-        label: 'Share Item...',
-        onClick: () => {
-          setTargetFile(single);
-          setPasswordInput('');
-          setProtectWithPassword(false);
-          setGeneratedLink('');
-          setActiveModal('share');
-        }
-      });
-      
-      if (single.name.endsWith('.zip')) {
+        menuItems.push({ separator: true, onClick: () => {} });
         menuItems.push({
-          label: 'Decompress (Extract)',
-          onClick: () => executeDecompress(single)
+          label: single.isDirectory ? 'Permanently Delete Folder' : 'Permanently Delete File',
+          onClick: () => {
+            setTargetFile(single);
+            setSelectedItems([single]);
+            setActiveModal('confirm_delete');
+          }
+        });
+      } else {
+        menuItems.push({
+          label: 'Rename...',
+          onClick: () => {
+            setTargetFile(single);
+            setModalInput(single.name);
+            setActiveModal('rename');
+          }
+        });
+        menuItems.push({
+          label: 'Share Item...',
+          onClick: () => {
+            setTargetFile(single);
+            setPasswordInput('');
+            setProtectWithPassword(false);
+            setGeneratedLink('');
+            setActiveModal('share');
+          }
+        });
+        
+        if (single.name.endsWith('.zip')) {
+          menuItems.push({
+            label: 'Decompress (Extract)',
+            onClick: () => executeDecompress(single)
+          });
+        }
+
+        menuItems.push({ separator: true, onClick: () => {} });
+        menuItems.push({
+          label: 'Compress (Zip)...',
+          onClick: () => {
+            setTargetFile(single);
+            setModalInput(`${single.name.replace(/\.[^/.]+$/, '')}`);
+            setActiveModal('compress');
+          }
+        });
+        
+        menuItems.push({
+          label: 'Move to Trash',
+          onClick: () => {
+            setTargetFile(single);
+            executeDelete();
+          }
         });
       }
-
-      menuItems.push({ separator: true, onClick: () => {} });
-      menuItems.push({
-        label: 'Compress (Zip)...',
-        onClick: () => {
-          setTargetFile(single);
-          setModalInput(`${single.name.replace(/\.[^/.]+$/, '')}`);
-          setActiveModal('compress');
-        }
-      });
-      
-      menuItems.push({
-        label: 'Move to Trash',
-        onClick: () => {
-          setTargetFile(single);
-          executeDelete();
-        }
-      });
     } else if (targets.length > 1) {
-      menuItems.push({
-        label: 'Download zip archive',
-        onClick: () => triggerDownload(targets)
-      });
-      menuItems.push({
-        label: 'Compress selected...',
-        onClick: () => {
-          setTargetFile(null);
-          setModalInput('Archive');
-          setActiveModal('compress');
+      const isInsideTrash = currentPath.includes('.TrashFolder') || currentPath === 'Trash';
+
+      if (isInsideTrash) {
+        const hasAnyOrigin = targets.some(t => t.hasTrashOrigin);
+        if (hasAnyOrigin) {
+          menuItems.push({
+            label: 'Put Back Items',
+            onClick: () => executePutBackMultiple(targets)
+          });
         }
-      });
-      menuItems.push({
-        label: 'Share Items...',
-        onClick: () => {
-          setTargetFile(null); // Indicates multiple items
-          setPasswordInput('');
-          setProtectWithPassword(false);
-          setGeneratedLink('');
-          setActiveModal('share');
-        }
-      });
-      menuItems.push({
-        label: 'Move all to Trash',
-        onClick: () => executeDelete()
-      });
+        menuItems.push({ separator: true, onClick: () => {} });
+        menuItems.push({
+          label: `Permanently Delete ${targets.length} Items`,
+          onClick: () => {
+            setSelectedItems(targets);
+            setActiveModal('confirm_delete');
+          }
+        });
+      } else {
+        menuItems.push({
+          label: 'Download zip archive',
+          onClick: () => triggerDownload(targets)
+        });
+        menuItems.push({
+          label: 'Compress selected...',
+          onClick: () => {
+            setTargetFile(null);
+            setModalInput('Archive');
+            setActiveModal('compress');
+          }
+        });
+        menuItems.push({
+          label: 'Share Items...',
+          onClick: () => {
+            setTargetFile(null); // Indicates multiple items
+            setPasswordInput('');
+            setProtectWithPassword(false);
+            setGeneratedLink('');
+            setActiveModal('share');
+          }
+        });
+        menuItems.push({
+          label: 'Move all to Trash',
+          onClick: () => executeDelete()
+        });
+      }
     } else {
       // Empty workspace right-click menu
       menuItems.push({
@@ -1002,6 +1103,160 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     if (path === 'Trash' && currentPath.includes('.TrashFolder')) return true;
     return currentPath === path;
   };
+
+  // Keyboard Navigation & Shortcuts Hook
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. If any input/textarea is focused, ignore shortcuts
+      const activeEl = document.activeElement;
+      if (activeEl) {
+        const tagName = activeEl.tagName.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea' || activeEl.getAttribute('contenteditable') === 'true') {
+          return;
+        }
+      }
+
+      // 2. Spacebar -> Toggle/Trigger Preview
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (viewerVisible) {
+          setViewerVisible(false);
+          setViewingFile(null);
+          setViewerTextContent('');
+        } else if (selectedItems.length === 1) {
+          setViewerVisible(true);
+          updateActivePreview(selectedItems[0]);
+        }
+        return;
+      }
+
+      // 3. Escape -> Dismiss Preview
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        if (viewerVisible) {
+          e.preventDefault();
+          setViewerVisible(false);
+          setViewingFile(null);
+          setViewerTextContent('');
+        }
+        return;
+      }
+
+      // 4. Cursor keys (ArrowUp, ArrowDown, ArrowLeft, ArrowRight)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+
+        if (filteredFiles.length === 0) return;
+
+        let currentItem = selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null;
+        let nextItem: FileItem | null = null;
+
+        if (viewMode === 'list') {
+          const currentIndex = currentItem 
+            ? filteredFiles.findIndex(f => f.relativePath === currentItem!.relativePath) 
+            : -1;
+
+          if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            const nextIndex = currentIndex > 0 ? currentIndex - 1 : filteredFiles.length - 1;
+            nextItem = filteredFiles[nextIndex];
+          } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            const nextIndex = (currentIndex >= 0 && currentIndex < filteredFiles.length - 1) ? currentIndex + 1 : 0;
+            nextItem = filteredFiles[nextIndex];
+          }
+        } else {
+          // Grid View Layout-Aware Navigation using offsetTop/offsetLeft
+          const gridItems = Array.from(document.querySelectorAll('.grid-view .grid-item'));
+          const fileElements = gridItems.filter(el => !el.classList.contains('parent-dir-item'));
+          
+          if (fileElements.length === 0) return;
+
+          const currentIndex = currentItem 
+            ? filteredFiles.findIndex(f => f.relativePath === currentItem!.relativePath) 
+            : -1;
+
+          if (currentIndex === -1) {
+            nextItem = filteredFiles[0];
+          } else {
+            const currentEl = fileElements[currentIndex] as HTMLElement;
+            if (!currentEl) {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                nextItem = filteredFiles[Math.max(0, currentIndex - 1)];
+              } else {
+                nextItem = filteredFiles[Math.min(filteredFiles.length - 1, currentIndex + 1)];
+              }
+            } else {
+              const currentTop = currentEl.offsetTop;
+              const currentLeft = currentEl.offsetLeft;
+
+              if (e.key === 'ArrowLeft') {
+                nextItem = filteredFiles[Math.max(0, currentIndex - 1)];
+              } else if (e.key === 'ArrowRight') {
+                nextItem = filteredFiles[Math.min(filteredFiles.length - 1, currentIndex + 1)];
+              } else if (e.key === 'ArrowUp') {
+                const itemsAbove = fileElements.filter(el => (el as HTMLElement).offsetTop < currentTop);
+                if (itemsAbove.length > 0) {
+                  const maxTopAbove = Math.max(...itemsAbove.map(el => (el as HTMLElement).offsetTop));
+                  const candidates = itemsAbove.filter(el => (el as HTMLElement).offsetTop === maxTopAbove);
+                  let bestEl = candidates[0];
+                  let minDiff = Math.abs((bestEl as HTMLElement).offsetLeft - currentLeft);
+                  for (let i = 1; i < candidates.length; i++) {
+                    const diff = Math.abs((candidates[i] as HTMLElement).offsetLeft - currentLeft);
+                    if (diff < minDiff) {
+                      minDiff = diff;
+                      bestEl = candidates[i];
+                    }
+                  }
+                  const bestIdx = fileElements.indexOf(bestEl);
+                  if (bestIdx !== -1) nextItem = filteredFiles[bestIdx];
+                } else {
+                  nextItem = filteredFiles[0];
+                }
+              } else if (e.key === 'ArrowDown') {
+                const itemsBelow = fileElements.filter(el => (el as HTMLElement).offsetTop > currentTop);
+                if (itemsBelow.length > 0) {
+                  const minTopBelow = Math.min(...itemsBelow.map(el => (el as HTMLElement).offsetTop));
+                  const candidates = itemsBelow.filter(el => (el as HTMLElement).offsetTop === minTopBelow);
+                  let bestEl = candidates[0];
+                  let minDiff = Math.abs((bestEl as HTMLElement).offsetLeft - currentLeft);
+                  for (let i = 1; i < candidates.length; i++) {
+                    const diff = Math.abs((candidates[i] as HTMLElement).offsetLeft - currentLeft);
+                    if (diff < minDiff) {
+                      minDiff = diff;
+                      bestEl = candidates[i];
+                    }
+                  }
+                  const bestIdx = fileElements.indexOf(bestEl);
+                  if (bestIdx !== -1) nextItem = filteredFiles[bestIdx];
+                } else {
+                  nextItem = filteredFiles[filteredFiles.length - 1];
+                }
+              }
+            }
+          }
+        }
+
+        if (nextItem) {
+          setSelectedItems([nextItem]);
+          setLastSelectedItem(nextItem);
+          setTimeout(() => {
+            const escapePath = (nextItem!.relativePath).replace(/"/g, '\\"');
+            const targetDom = document.querySelector(`[data-relative-path="${escapePath}"]`);
+            if (targetDom) {
+              targetDom.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+            }
+          }, 0);
+
+          if (viewerVisible) {
+            updateActivePreview(nextItem);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedItems, filteredFiles, viewMode, viewerVisible]);
 
   return (
     <IconSetContext.Provider value={iconSet}>
@@ -1116,6 +1371,15 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
 
             <button className="toolbar-btn" onClick={triggerUpload} title="Upload">
               <UploadIcon size={20} />
+            </button>
+
+            <button 
+              className="toolbar-btn" 
+              onClick={() => setActiveModal('confirm_delete')} 
+              disabled={selectedItems.length === 0} 
+              title={(currentPath.includes('.TrashFolder') || currentPath === 'Trash') ? "Delete Permanently" : "Move to Trash"}
+            >
+              <TrashIcon size={20} />
             </button>
 
             <button className="toolbar-btn" onClick={() => setShowDetails(!showDetails)} disabled={selectedItems.length !== 1} title="Get Info">
@@ -1391,6 +1655,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 return (
                   <div
                     key={item.relativePath}
+                    data-relative-path={item.relativePath}
                     className={`grid-item ${isSelected ? 'selected' : ''}`}
                     onClick={(e) => handleItemClick(e, item)}
                     onDoubleClick={() => handleDoubleClick(item)}
@@ -1496,6 +1761,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   return (
                     <tr
                       key={item.relativePath}
+                      data-relative-path={item.relativePath}
                       className={`list-item-row ${isSelected ? 'selected' : ''}`}
                       onClick={(e) => handleItemClick(e, item)}
                       onDoubleClick={() => handleDoubleClick(item)}
@@ -1620,6 +1886,40 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 onClick={executeCompress}
               >
                 Compress
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'confirm_delete' && (
+        <div className="modal-overlay">
+          <div className="mac-dialog" style={{ width: '320px', gap: '15px' }}>
+            <h3 className="dialog-title" style={{ color: '#ff453a' }}>Confirm Delete</h3>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', textAlign: 'left', lineHeight: '1.4' }}>
+              {(currentPath.includes('.TrashFolder') || currentPath === 'Trash') ? (
+                selectedItems.length === 1 
+                  ? `Are you sure you want to permanently delete "${selectedItems[0]?.name}"? This action cannot be undone.`
+                  : `Are you sure you want to permanently delete these ${selectedItems.length} items? This action cannot be undone.`
+              ) : (
+                selectedItems.length === 1
+                  ? `Are you sure you want to move "${selectedItems[0]?.name}" to Trash?`
+                  : `Are you sure you want to move these ${selectedItems.length} items to Trash?`
+              )}
+            </p>
+            <div className="dialog-buttons">
+              <button 
+                className="dialog-btn btn-cancel" 
+                onClick={() => setActiveModal(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="dialog-btn btn-confirm" 
+                onClick={executeDelete}
+                style={{ background: '#ff453a', border: '1px solid #ff453a' }}
+              >
+                {(currentPath.includes('.TrashFolder') || currentPath === 'Trash') ? 'Delete' : 'Move to Trash'}
               </button>
             </div>
           </div>
@@ -2126,6 +2426,61 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                         }} 
                       />
                     </div>
+                  )}
+
+                  {/* PDF Preview Screen */}
+                  {viewingFile.mimeType === 'pdf' && (
+                    <div style={{ display: 'flex', flex: 1, height: '100%', padding: '10px' }}>
+                      <iframe 
+                        src={`${apiBase}/api/files/download?path=${encodeURIComponent(viewingFile.relativePath)}&inline=true`} 
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          border: 'none',
+                          borderRadius: '8px',
+                          boxShadow: '0 10px 30px rgba(0,0,0,0.15)'
+                        }} 
+                      />
+                    </div>
+                  )}
+
+                  {/* Fallback Preview for Folders and other file types */}
+                  {viewingFile.mimeType !== 'text' && 
+                   viewingFile.mimeType !== 'image' && 
+                   viewingFile.mimeType !== 'audio' && 
+                   viewingFile.mimeType !== 'video' && 
+                   viewingFile.mimeType !== 'pdf' && (
+                     <div style={{ display: 'flex', flex: 1, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '40px' }}>
+                       <div 
+                         style={{ 
+                           width: '120px', 
+                           height: '120px', 
+                           borderRadius: '24px', 
+                           background: 'var(--sidebar-active)',
+                           border: '1px solid var(--border-inner)',
+                           boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                           display: 'flex',
+                           alignItems: 'center',
+                           justifyContent: 'center',
+                           fontSize: '64px',
+                           animation: 'dialogScale 0.3s ease-out'
+                         }}
+                       >
+                         {viewingFile.isDirectory ? '📁' : 
+                          viewingFile.mimeType === 'archive' ? '📦' : 
+                          viewingFile.mimeType === 'pdf' ? '📄' : '📝'}
+                       </div>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', textAlign: 'center' }}>
+                         <span style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{viewingFile.name}</span>
+                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                           {viewingFile.isDirectory ? 'Folder' : `${viewingFile.mimeType.toUpperCase()} file`} 
+                           {!viewingFile.isDirectory && ` • ${formatBytes(viewingFile.size)}`}
+                         </span>
+                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                           Modified: {formatDate(viewingFile.mtime)}
+                         </span>
+                       </div>
+                     </div>
                   )}
                 </>
               )}
