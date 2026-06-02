@@ -83,6 +83,9 @@ Open `.env` and supply secure, unique configuration values:
 - `APP_USER`: A custom administration username.
 - `APP_PASSWORD_HASH`: Salted bcrypt hash of your preferred administrator password.
 
+- `SHARE_SECRET`: A long cryptographically strong random string (e.g. 64 chars). Used to encrypt the bundle files for sharing
+- `SHARE_MAX_USES`: How many times can a generated share link be reused
+
 ### Step 2: Launch Container Topology
 Start the multi-stage Docker build and run services in detached daemon mode:
 ```bash
