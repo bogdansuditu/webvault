@@ -18,6 +18,8 @@ import * as fileService from './fileService.js';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const FULL_SESSION_DURATION = '30d';
+const FULL_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Setup Middleware
 app.use(cors({
@@ -182,14 +184,14 @@ app.post('/api/auth/verify-2fa', authLimiter, authenticateToken, async (req, res
     verified2fa: true
   };
 
-  const fullToken = jwt.sign(fullSession, config.jwtSecret, { expiresIn: '24h' });
+  const fullToken = jwt.sign(fullSession, config.jwtSecret, { expiresIn: FULL_SESSION_DURATION });
 
   // Set full auth session cookie
   res.cookie('webvault_session', fullToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: FULL_SESSION_MAX_AGE_MS // 30 days
   });
 
   return res.json({
