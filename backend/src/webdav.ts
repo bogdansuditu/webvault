@@ -14,6 +14,7 @@ const DAV_MOUNT_PATH = '/webdav';
 const TRASH_DIRECTORY = '.TrashFolder';
 const TEMP_UPLOAD_PREFIX = '.webvault-upload-';
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_SUCCESS_CACHE_MS = 5 * 60 * 1000;
 const MAX_AUTH_FAILURES = 5;
 
 interface AuthFailureState {
@@ -22,6 +23,8 @@ interface AuthFailureState {
 }
 
 const authFailures = new Map<string, AuthFailureState>();
+let successfulCredential: { fingerprint: string; expiresAt: number } | null = null;
+const pendingCredentialChecks = new Map<string, Promise<boolean>>();
 
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -67,6 +70,42 @@ function parseBasicCredentials(header: string | undefined): { username: string; 
     };
   } catch {
     return null;
+  }
+}
+
+async function verifyWebDavCredentials(
+  credentials: { username: string; password: string },
+  username: string,
+  passwordHash: string
+): Promise<boolean> {
+  if (!passwordHash || credentials.username !== username) return false;
+
+  const fingerprint = crypto.createHash('sha256')
+    .update(credentials.username)
+    .update('\0')
+    .update(credentials.password)
+    .update('\0')
+    .update(passwordHash)
+    .digest('base64url');
+
+  if (successfulCredential?.fingerprint === fingerprint && successfulCredential.expiresAt > Date.now()) {
+    return true;
+  }
+
+  let check = pendingCredentialChecks.get(fingerprint);
+  if (!check) {
+    check = bcrypt.compare(credentials.password, passwordHash);
+    pendingCredentialChecks.set(fingerprint, check);
+  }
+
+  try {
+    const valid = await check;
+    if (valid) {
+      successfulCredential = { fingerprint, expiresAt: Date.now() + AUTH_SUCCESS_CACHE_MS };
+    }
+    return valid;
+  } finally {
+    pendingCredentialChecks.delete(fingerprint);
   }
 }
 
@@ -123,18 +162,32 @@ function validateDavPath(urlValue: string): string {
 }
 
 class PhysicalStorageManager implements webdav.IStorageManager {
+  private cachedUsage: { available: number; used: number; expiresAt: number } | null = null;
+  private pendingUsageCallbacks: Array<(available: number, used: number) => void> = [];
+
   private diskUsage(callback: (available: number, used: number) => void): void {
+    if (this.cachedUsage && this.cachedUsage.expiresAt > Date.now()) {
+      process.nextTick(() => callback(this.cachedUsage!.available, this.cachedUsage!.used));
+      return;
+    }
+
+    this.pendingUsageCallbacks.push(callback);
+    if (this.pendingUsageCallbacks.length > 1) return;
+
     fs.statfs(STORAGE_DIR, (error, stats) => {
+      let available = 0;
+      let used = 0;
       if (error) {
         console.error('Failed to read WebDAV storage capacity:', error);
-        callback(0, 0);
-        return;
+      } else {
+        const blockSize = Number(stats.bsize);
+        available = Math.max(0, Number(stats.bavail) * blockSize);
+        used = Math.max(0, (Number(stats.blocks) - Number(stats.bfree)) * blockSize);
+        this.cachedUsage = { available, used, expiresAt: Date.now() + 2000 };
       }
 
-      const blockSize = Number(stats.bsize);
-      const available = Math.max(0, Number(stats.bavail) * blockSize);
-      const used = Math.max(0, (Number(stats.blocks) - Number(stats.bfree)) * blockSize);
-      callback(available, used);
+      const callbacks = this.pendingUsageCallbacks.splice(0);
+      callbacks.forEach(pending => pending(available, used));
     });
   }
 
@@ -280,6 +333,16 @@ export async function authenticateWebDav(req: Request, res: Response, next: Next
   }
 
   const key = clientKey(req);
+  const credentials = parseBasicCredentials(req.headers.authorization);
+
+  // Initial requests without Authorization are the normal HTTP Basic
+  // challenge handshake used by Finder and Windows WebClient. They are not a
+  // failed password attempt and must not consume the brute-force allowance.
+  if (!req.headers.authorization) {
+    challenge(res);
+    return;
+  }
+
   const failureState = getFailureState(key);
   if (failureState.count >= MAX_AUTH_FAILURES) {
     const retryAfterSeconds = Math.max(1, Math.ceil((failureState.resetAt - Date.now()) / 1000));
@@ -289,15 +352,13 @@ export async function authenticateWebDav(req: Request, res: Response, next: Next
   }
 
   const config = loadConfig();
-  const credentials = parseBasicCredentials(req.headers.authorization);
   let authenticated = false;
 
   try {
-    authenticated = !!(
-      config.webdavPasswordHash &&
-      credentials &&
-      credentials.username === config.appUser &&
-      await bcrypt.compare(credentials.password, config.webdavPasswordHash)
+    authenticated = !!credentials && await verifyWebDavCredentials(
+      credentials,
+      config.appUser,
+      config.webdavPasswordHash
     );
   } catch (error) {
     console.error('WebDAV authentication failed:', error);
@@ -314,6 +375,15 @@ export async function authenticateWebDav(req: Request, res: Response, next: Next
   // credential has already been verified against WebVault's bcrypt hash, so do
   // not pass the Basic header into that separate user database.
   delete req.headers.authorization;
+
+  // webdav-server 2.6.3 crashes on the untagged `If: (<lock-token>)` header
+  // sent by Windows WebClient because its parser passes an undefined path to
+  // getFileSystem(). File operations already run as the DAV engine's default
+  // administrator, so locks are advisory here. LOCK itself still receives If
+  // for lock refresh; other methods discard the unsafe condition header.
+  if (req.method !== 'LOCK') {
+    delete req.headers.if;
+  }
 
   try {
     validateDavPath(req.originalUrl);

@@ -119,7 +119,11 @@ Security and behavior:
 * The WebDAV username follows the configured application username, while the
   password remains independent.
 * Authentication attempts are rate-limited using the same Cloudflare-aware
-  client IP handling as the login flow.
+  client IP handling as the login flow. Normal unauthenticated HTTP Basic
+  challenge probes from Finder and Windows are not counted as failed password
+  attempts. A successful credential check is cached in memory for five minutes
+  using a one-way fingerprint, avoiding repeated bcrypt work during DAV browse
+  and copy sequences; changing the configured password invalidates the cache.
 * DAV paths are resolved against `/app/storage` and are checked for traversal
   and symbolic-link escapes. `/app/storage/.TrashFolder` is neither listed nor
   directly accessible. Application configuration, share metadata, TOTP data,
@@ -131,6 +135,9 @@ Security and behavior:
 * Requests must preserve DAV methods and the `Authorization`, `Destination`,
   `Depth`, `If`, `Lock-Token`, and `Overwrite` headers through any Cloudflare
   configuration placed in front of the tunnel.
+* Windows WebClient's untagged lock-token `If` headers are sanitized before
+  non-`LOCK` operations reach the underlying DAV library. This avoids a known
+  parser failure while retaining lock creation and refresh behavior.
 * The DAV root reports the real capacity and free space of the filesystem that
   backs `/app/storage`, allowing macOS Finder to reserve space before copying.
   Finder-style chunked uploads are staged and atomically committed only after
