@@ -325,6 +325,16 @@ body, html {
   fill: currentColor;
 }
 
+.refresh-btn.refreshing svg {
+  animation: refresh-spin 0.8s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* View Mode Toggles (List vs Grid) */
 .view-toggle {
   display: flex;

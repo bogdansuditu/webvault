@@ -756,6 +756,38 @@ export const ChevronRightIcon: React.FC<IconProps> = ({ size = 24, ...props }) =
 };
 
 // ============================================================================
+// Refresh Icon
+// ============================================================================
+export const RefreshIcon: React.FC<IconProps> = ({ size = 24, ...props }) => {
+  const iconSet = useIconSet();
+  const stroke = iconSet === 'neon-flat' ? '#4cc9f0' : 'currentColor';
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={iconSet === 'monochrome-outline' ? 1.5 : 2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+      style={{
+        ...(iconSet === 'neon-flat' ? { filter: 'drop-shadow(0 0 3px #4cc9f0)' } : {}),
+        ...props.style
+      }}
+    >
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M6.1 9a7 7 0 0 1 11.6-2.6L20 11" />
+      <path d="M17.9 15a7 7 0 0 1-11.6 2.6L4 13" />
+    </svg>
+  );
+};
+
+// ============================================================================
 // 17. Sun Icon
 // ============================================================================
 export const SunIcon: React.FC<IconProps> = ({ size = 24, ...props }) => {

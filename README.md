@@ -76,7 +76,7 @@ the JSON API are served by the same Express process on port `8080`.
 | Authentication | HTTPS uses username/password plus TOTP (including first-run enrollment). Plain HTTP testing uses username/password only. Both modes use a 30-day signed HTTP-only session cookie. |
 | Account settings | Display name, username, and application password can be changed from **User Account Settings**. |
 | Storage | All browser file operations are constrained to `STORAGE_DIR` (normally `/app/storage`). `Documents`, `Downloads`, and `.TrashFolder` are created automatically. |
-| Browsing | Grid/list views, breadcrumbs, history, search/filtering, column sorting, multi-selection, keyboard navigation, and an item inspector. |
+| Browsing | Grid/list views, breadcrumbs, history, manual folder refresh, browser-reload path restoration, search/filtering, column sorting, multi-selection, keyboard navigation, and an item inspector. |
 | File operations | Streaming uploads up to 2 GB per file, downloads, folder creation, rename/move, drag-and-drop relocation, ZIP creation/extraction, trash, empty trash, and restore-to-original-location. |
 | Previewing | Images (including TIFF), text, Markdown, CSV, PDF, audio, and video. Other formats download directly. |
 | Clipboard | Pasted images and text are converted to files and uploaded to the current directory. |
@@ -124,6 +124,10 @@ Security and behavior:
   attempts. A successful credential check is cached in memory for five minutes
   using a one-way fingerprint, avoiding repeated bcrypt work during DAV browse
   and copy sequences; changing the configured password invalidates the cache.
+* Authentication is completed once by WebVault's Basic-auth middleware. The
+  underlying DAV engine does not advertise its own Digest challenge on
+  successful responses, avoiding the long authentication retry loop triggered
+  by macOS Finder.
 * DAV paths are resolved against `/app/storage` and are checked for traversal
   and symbolic-link escapes. `/app/storage/.TrashFolder` is neither listed nor
   directly accessible. Application configuration, share metadata, TOTP data,

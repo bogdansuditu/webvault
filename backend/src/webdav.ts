@@ -326,6 +326,28 @@ class WebVaultPhysicalFileSystem extends webdav.PhysicalFileSystem {
   }
 }
 
+// Express has already authenticated every request before it reaches the DAV
+// engine. webdav-server otherwise creates its own Digest authenticator even
+// when requireAuthentification is false, and adds a Digest challenge to
+// successful responses. Finder treats that contradictory challenge as a new
+// authentication scheme and can spend one or two minutes retrying it.
+class PreAuthenticatedWebDavAuthentication implements webdav.HTTPAuthentication {
+  private readonly user = new webdav.SimpleUser('WebVault', '', true, false);
+
+  askForAuthentication(): { [headerName: string]: string } {
+    return {};
+  }
+
+  getUser(
+    _ctx: webdav.HTTPRequestContext,
+    callback: (error: Error, user?: webdav.IUser) => void
+  ): void {
+    // The library's callback type does not allow an empty error even though
+    // that is how its own authentication implementations signal success.
+    callback(undefined as unknown as Error, this.user);
+  }
+}
+
 export async function authenticateWebDav(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (process.env.NODE_ENV === 'production' && !requestUsesHttps(req)) {
     res.status(400).type('text/plain').send('WebDAV Basic authentication requires HTTPS.');
@@ -405,7 +427,9 @@ export function createWebDavHandler() {
     rootFileSystem: new WebVaultPhysicalFileSystem(STORAGE_DIR),
     storageManager: new PhysicalStorageManager(),
     // Express authenticates against the bcrypt hash before requests reach the
-    // DAV engine. Disable its separate in-memory Digest user database.
+    // DAV engine. Supply the already-authenticated administrator explicitly;
+    // otherwise this library advertises Digest even on successful responses.
+    httpAuthentication: new PreAuthenticatedWebDavAuthentication(),
     requireAuthentification: false,
     strictMode: false,
     serverName: 'WebVault',

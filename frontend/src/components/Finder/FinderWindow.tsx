@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   FolderIcon, FileIcon, ImageIcon, PDFIcon, AudioIcon, VideoIcon, ArchiveIcon, TrashIcon,
   SearchIcon, GridIcon, ListIcon, NewFolderIcon, UploadIcon, InfoIcon, 
-  ChevronLeftIcon, ChevronRightIcon, SunIcon, MoonIcon, PowerIcon,
+  ChevronLeftIcon, ChevronRightIcon, RefreshIcon, SunIcon, MoonIcon, PowerIcon,
   IconSetContext
 } from '../../assets/icons';
 import { ContextMenu, ContextMenuItem } from '../ContextMenu/ContextMenu';
@@ -41,10 +41,11 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   themeData, activeTheme, onSelectTheme
 }) => {
   const iconSet = themeData?.themes?.[activeTheme || 'sonoma']?.iconSet || 'sf-symbols';
+  const savedPath = localStorage.getItem('webvault_current_path') || '';
   // Navigation Path History
-  const [currentPath, setCurrentPath] = useState('');
-  const [pathHistory, setPathHistory] = useState<string[]>(['']);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  const [currentPath, setCurrentPath] = useState(savedPath);
+  const [pathHistory, setPathHistory] = useState<string[]>(savedPath ? ['', savedPath] : ['']);
+  const [historyIndex, setHistoryIndex] = useState(savedPath ? 1 : 0);
 
   // User Account Settings States
   const [userMenuVisible, setUserMenuVisible] = useState(false);
@@ -87,6 +88,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   useEffect(() => {
     localStorage.setItem('webvault_show_details', String(showDetails));
   }, [showDetails]);
+
+  useEffect(() => {
+    localStorage.setItem('webvault_current_path', currentPath);
+  }, [currentPath]);
 
   // Drag and Drop (External Local Files)
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1331,6 +1336,16 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 <ListIcon size={16} />
               </button>
             </div>
+
+            <button
+              className={`toolbar-btn refresh-btn ${loading ? 'refreshing' : ''}`}
+              onClick={() => fetchDirectory(currentPath)}
+              disabled={loading}
+              title="Refresh Folder"
+              aria-label="Refresh Folder"
+            >
+              <RefreshIcon size={18} />
+            </button>
 
             {/* Breadcrumb navigator */}
             <div className="breadcrumb-trail">
