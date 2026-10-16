@@ -131,11 +131,28 @@ Security and behavior:
 * Requests must preserve DAV methods and the `Authorization`, `Destination`,
   `Depth`, `If`, `Lock-Token`, and `Overwrite` headers through any Cloudflare
   configuration placed in front of the tunnel.
+* The DAV root reports the real capacity and free space of the filesystem that
+  backs `/app/storage`, allowing macOS Finder to reserve space before copying.
+  Finder-style chunked uploads are staged and atomically committed only after
+  the complete expected byte count arrives. Interrupted uploads are removed
+  instead of leaving successful zero-byte or truncated files.
 
 WebDAV provides full read/write access to the allowed storage tree, including
 file uploads, edits, folder creation, copying, moving, locking, and deletion.
 WebDAV deletion is a direct filesystem deletion and does not use WebVault's
 browser-only Trash workflow.
+
+Upload-size limits:
+
+* WebVault's browser upload endpoint accepts up to **2 GiB per file** and
+  streams multipart content to disk. Browser uploads are sent one file at a
+  time.
+* WebDAV does not add an application-level file-size cap; available filesystem
+  space is enforced while the PUT body streams to disk.
+* Requests still pass through Cloudflare. Cloudflare's current maximum request
+  body is 100 MB on Free/Pro, 200 MB on Business, and configurable up to 5 GB
+  on Enterprise. A lower value configured for the zone also applies. See
+  [Cloudflare's 413 documentation](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/).
 
 ### Connecting a BOOX device
 

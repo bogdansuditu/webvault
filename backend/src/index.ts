@@ -22,7 +22,7 @@ import {
 } from './config.js';
 import { authenticateToken, requireFullAuth, UserSession } from './middleware.js';
 import * as fileService from './fileService.js';
-import { authenticateWebDav, createWebDavHandler } from './webdav.js';
+import { authenticateWebDav, createWebDavHandler, handleWebDavPut } from './webdav.js';
 import { requestUsesHttps } from './requestSecurity.js';
 
 const app = express();
@@ -406,6 +406,7 @@ app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
 // WebDAV uses a dedicated Basic-auth password and exposes /app/storage while
 // explicitly excluding the application's .TrashFolder.
 app.use('/webdav', authenticateWebDav);
+app.use('/webdav', handleWebDavPut);
 app.use(createWebDavHandler());
 
 
