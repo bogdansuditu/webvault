@@ -33,9 +33,9 @@ WebVault is a self-hosted, highly secure, and pixel-perfect **macOS Finder-like 
 * **Instant Text Paste:** Copy plain text and paste to automatically package and upload it as a `.txt` file named after the sanitized first word of the text.
 
 ### 🛡️ Hardened Production Security
-* **Double-Layered Session Cookies:** signed JWT tokens are delivered in secure cookies (`httpOnly: true`, `sameSite: 'strict'`, `secure: true` in production) to isolate tokens from XSS and defend against CSRF.
+* **Protocol-Aware Session Cookies:** signed JWT tokens use `httpOnly: true` and `sameSite: 'strict'`; HTTPS sessions additionally use `secure: true`, while local HTTP testing remains functional.
 * **Salted Password Storage:** Salted hashes are handled via **bcrypt** with `10` rounds and saved in persistent server-side configurations.
-* **Master TOTP Setup:** Interactive dynamic setup generates a base64 setup QR code for Google Authenticator/1Password, enforcing MFA validation before session credentials grant.
+* **Master TOTP Setup:** HTTPS access interactively generates a base64 setup QR code for Google Authenticator/1Password and enforces MFA before granting full access. Plain HTTP testing intentionally uses password-only authentication.
 * **Safe Path Resolution:** Absolute traversal checks block input traversal attempts (e.g. `../../etc/passwd`).
 * **Cloudflare-Tunnel Rate Limiting:** Trust proxy configuration and rate limiting middleware (`express-rate-limit`) parse incoming `CF-Connecting-IP` headers to prevent brute-forcing authentication routes without penalizing other users behind the reverse proxy.
 
@@ -73,7 +73,7 @@ the JSON API are served by the same Express process on port `8080`.
 
 | Area | Current behavior |
 | --- | --- |
-| Authentication | Username/password login, first-run TOTP enrollment, TOTP verification, 30-day signed HTTP-only session cookie, logout, and authenticated account updates. |
+| Authentication | HTTPS uses username/password plus TOTP (including first-run enrollment). Plain HTTP testing uses username/password only. Both modes use a 30-day signed HTTP-only session cookie. |
 | Account settings | Display name, username, and application password can be changed from **User Account Settings**. |
 | Storage | All browser file operations are constrained to `STORAGE_DIR` (normally `/app/storage`). `Documents`, `Downloads`, and `.TrashFolder` are created automatically. |
 | Browsing | Grid/list views, breadcrumbs, history, search/filtering, column sorting, multi-selection, keyboard navigation, and an item inspector. |
@@ -109,11 +109,13 @@ Security and behavior:
 * Production DAV requests are rejected unless Express sees HTTPS directly or
   through Cloudflare's forwarded-protocol headers.
 * A dedicated WebDAV password is set or replaced in **User Account Settings**,
-  directly below **New Password (Optional)**. Only a salted password hash is
-  persisted in `/app/config/config.json`.
-* Saving account settings with an empty WebDAV password generates a random
-  8-character password. The plaintext is shown once so it can be copied to the
-  DAV client; only its bcrypt hash is persisted.
+  directly below **New Password (Optional)**. It is displayed in that dialog so
+  it can be copied to a DAV client. Authentication uses a bcrypt hash; an
+  AES-256-GCM encrypted copy is persisted in `/app/config/config.json` so the
+  current value can be displayed again to an authenticated user.
+* If no WebDAV password exists, opening account settings generates a random
+  8-character password and displays it immediately. Clearing the field and
+  saving also generates and displays a new password.
 * The WebDAV username follows the configured application username, while the
   password remains independent.
 * Authentication attempts are rate-limited using the same Cloudflare-aware
@@ -178,9 +180,17 @@ docker-compose up -d --build
 
 ### Step 3: Access and Configure 2FA
 1. Open your browser and navigate to **`http://localhost:8080`**.
-2. Log in using your configured username and password.
-3. On first login, scan the displayed setup **QR Code** using Google Authenticator or your password manager.
-4. Input the 6-digit TOTP verification code to grant full session access.
+2. Log in using your configured username and password. TOTP is skipped while
+   accessing WebVault over plain HTTP for local testing.
+3. Open the application through its Cloudflare **HTTPS** hostname. On the first
+   HTTPS login, scan the displayed setup **QR Code** using Google Authenticator
+   or your password manager.
+4. Input the 6-digit TOTP verification code. All subsequent HTTPS logins continue
+   to require TOTP.
+
+Protocol is evaluated server-side using the direct connection and the trusted
+proxy headers supplied by Cloudflare. An HTTP password-only session is not
+accepted as fully authenticated if it is later presented over HTTPS.
 
 ---
 

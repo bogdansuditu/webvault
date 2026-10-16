@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 // Define directories in container
 export const STORAGE_DIR = process.env.STORAGE_DIR || '/app/storage';
@@ -13,6 +14,7 @@ export interface AppConfig {
   totpSecret: string;
   displayName: string;
   webdavPasswordHash: string;
+  webdavPasswordEncrypted: string;
   shareSecret: string;
   shareMaxUses: number;
 }
@@ -25,6 +27,7 @@ let activeConfig: AppConfig = {
   totpSecret: process.env.TOTP_SECRET || '',
   displayName: process.env.APP_DISPLAY_NAME || 'Administrator',
   webdavPasswordHash: process.env.WEBDAV_PASSWORD_HASH || '',
+  webdavPasswordEncrypted: '',
   shareSecret: process.env.SHARE_SECRET || 'webvault-default-secure-sharing-secret-key-change-me',
   shareMaxUses: Number(process.env.SHARE_MAX_USES) || 5,
 };
@@ -45,6 +48,9 @@ export function loadConfig(): AppConfig {
       activeConfig.jwtSecret = json.jwtSecret || activeConfig.jwtSecret;
       activeConfig.displayName = json.displayName || activeConfig.displayName;
       activeConfig.webdavPasswordHash = json.webdavPasswordHash || activeConfig.webdavPasswordHash;
+      activeConfig.webdavPasswordEncrypted = typeof json.webdavPasswordEncrypted === 'string'
+        ? json.webdavPasswordEncrypted
+        : activeConfig.webdavPasswordEncrypted;
       activeConfig.shareSecret = json.shareSecret || activeConfig.shareSecret;
       activeConfig.shareMaxUses = json.shareMaxUses !== undefined ? Number(json.shareMaxUses) : activeConfig.shareMaxUses;
     }
@@ -77,6 +83,7 @@ export function saveConfig(updates: Partial<AppConfig>): void {
           totpSecret: activeConfig.totpSecret,
           displayName: activeConfig.displayName,
           webdavPasswordHash: activeConfig.webdavPasswordHash,
+          webdavPasswordEncrypted: activeConfig.webdavPasswordEncrypted,
           shareSecret: activeConfig.shareSecret,
           shareMaxUses: activeConfig.shareMaxUses,
         },
@@ -87,5 +94,42 @@ export function saveConfig(updates: Partial<AppConfig>): void {
     );
   } catch (err) {
     console.error('Failed to save config.json:', err);
+  }
+}
+
+function webdavEncryptionKey(jwtSecret: string): Buffer {
+  return crypto.createHash('sha256').update(`webvault-webdav-password:${jwtSecret}`).digest();
+}
+
+export function encryptWebdavPassword(password: string): string {
+  const config = loadConfig();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', webdavEncryptionKey(config.jwtSecret), iv);
+  const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ['v1', iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join(':');
+}
+
+export function decryptWebdavPassword(): string | null {
+  const config = loadConfig();
+  if (!config.webdavPasswordEncrypted) return null;
+
+  try {
+    const [version, ivValue, tagValue, encryptedValue] = config.webdavPasswordEncrypted.split(':');
+    if (version !== 'v1' || !ivValue || !tagValue || encryptedValue === undefined) return null;
+
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm',
+      webdavEncryptionKey(config.jwtSecret),
+      Buffer.from(ivValue, 'base64url')
+    );
+    decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(encryptedValue, 'base64url')),
+      decipher.final()
+    ]).toString('utf8');
+  } catch (error) {
+    console.error('Failed to decrypt the stored WebDAV password:', error);
+    return null;
   }
 }

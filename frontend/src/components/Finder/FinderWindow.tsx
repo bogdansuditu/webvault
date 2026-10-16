@@ -53,8 +53,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const [editDisplayName, setEditDisplayName] = useState(displayName);
   const [editPassword, setEditPassword] = useState('');
   const [editWebdavPassword, setEditWebdavPassword] = useState('');
-  const [generatedWebdavPassword, setGeneratedWebdavPassword] = useState('');
   const [editError, setEditError] = useState('');
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   // Selection Tracking State
   const [lastSelectedItem, setLastSelectedItem] = useState<FileItem | null>(null);
@@ -666,10 +666,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       setEditPassword('');
       setEditError('');
       if (data.generatedWebdavPassword) {
-        setGeneratedWebdavPassword(data.generatedWebdavPassword);
         setEditWebdavPassword(data.generatedWebdavPassword);
       } else {
-        setGeneratedWebdavPassword('');
         setEditWebdavPassword('');
         setUserModalVisible(false);
         setNotification({ message: 'Account details updated successfully!' });
@@ -677,6 +675,30 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       }
     } catch (err: any) {
       setEditError(err.message);
+    }
+  };
+
+  const handleOpenUserSettings = async () => {
+    setEditUsername(user);
+    setEditDisplayName(displayName);
+    setEditPassword('');
+    setEditWebdavPassword('');
+    setEditError('');
+    setSettingsLoading(true);
+    setUserModalVisible(true);
+    setUserMenuVisible(false);
+
+    try {
+      const res = await fetch(`${apiBase}/api/auth/account-settings`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to load account settings');
+      }
+      setEditWebdavPassword(data.webdavPassword || '');
+    } catch (err: any) {
+      setEditError(err.message);
+    } finally {
+      setSettingsLoading(false);
     }
   };
 
@@ -876,6 +898,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   // Smart Clipboard Paste (`CMD+V` / `CTRL+V`) Interception
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditableTarget = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+      if (userModalVisible || isEditableTarget) return;
+
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -910,7 +936,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     return () => {
       window.removeEventListener('paste', handlePaste);
     };
-  }, [currentPath]);
+  }, [currentPath, userModalVisible]);
 
   // Context Menu builder
   const handleContextMenu = (e: React.MouseEvent, item?: FileItem) => {
@@ -1474,16 +1500,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 {/* Dropdown Items */}
                 <div 
                   className="context-item" 
-                  onClick={() => {
-                    setEditUsername(user);
-                    setEditDisplayName(displayName);
-                    setEditPassword('');
-                    setEditWebdavPassword('');
-                    setGeneratedWebdavPassword('');
-                    setEditError('');
-                    setUserModalVisible(true);
-                    setUserMenuVisible(false);
-                  }}
+                  onClick={handleOpenUserSettings}
                   style={{ borderRadius: '5px' }}
                 >
                   User Account Settings
@@ -2125,24 +2142,11 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 <input
                   type="text"
                   className="dialog-input"
-                  placeholder="Leave blank to generate 8 characters"
                   value={editWebdavPassword}
-                  onChange={(e) => {
-                    setEditWebdavPassword(e.target.value);
-                    setGeneratedWebdavPassword('');
-                  }}
+                  disabled={settingsLoading}
+                  onChange={(e) => setEditWebdavPassword(e.target.value)}
                 />
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                  Used only with https://your-domain/webdav. It is separate from your application password.
-                </span>
               </div>
-
-              {generatedWebdavPassword && (
-                <div style={{ padding: '9px', borderRadius: '6px', background: 'var(--accent-light)', fontSize: '11px', lineHeight: 1.4 }}>
-                  Generated WebDAV password: <code style={{ userSelect: 'all', fontWeight: 700 }}>{generatedWebdavPassword}</code>
-                  <div style={{ marginTop: '3px', color: 'var(--text-secondary)' }}>Copy it now; only its hash is stored.</div>
-                </div>
-              )}
 
               {/* Dynamic Theme Selector Dropdown */}
               {themeData && themeData.themes && (
@@ -2184,7 +2188,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   setEditError('');
                   setEditPassword('');
                   setEditWebdavPassword('');
-                  setGeneratedWebdavPassword('');
+                  setSettingsLoading(false);
                 }}
               >
                 Cancel
@@ -2192,6 +2196,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               <button 
                 className="dialog-btn btn-confirm" 
                 onClick={handleSaveUserSettings}
+                disabled={settingsLoading}
               >
                 Save Settings
               </button>

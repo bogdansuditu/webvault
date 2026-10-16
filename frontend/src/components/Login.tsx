@@ -46,6 +46,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, apiBase }) => {
         throw new Error(data.error || 'Authentication failed');
       }
 
+      if (!data.need_2fa) {
+        onLoginSuccess(data.user || username);
+        return;
+      }
+
       setSetupRequired(data.setup_required);
       
       if (data.setup_required) {

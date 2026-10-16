@@ -12,15 +12,31 @@ import path from 'path';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 
-import { loadConfig, saveConfig, STORAGE_DIR, CONFIG_DIR } from './config.js';
+import {
+  decryptWebdavPassword,
+  encryptWebdavPassword,
+  loadConfig,
+  saveConfig,
+  STORAGE_DIR,
+  CONFIG_DIR
+} from './config.js';
 import { authenticateToken, requireFullAuth, UserSession } from './middleware.js';
 import * as fileService from './fileService.js';
 import { authenticateWebDav, createWebDavHandler } from './webdav.js';
+import { requestUsesHttps } from './requestSecurity.js';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const FULL_SESSION_DURATION = '30d';
 const FULL_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const WEBDAV_PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+
+function generateWebdavPassword(): string {
+  return Array.from(
+    { length: 8 },
+    () => WEBDAV_PASSWORD_ALPHABET[crypto.randomInt(WEBDAV_PASSWORD_ALPHABET.length)]
+  ).join('');
+}
 
 // Setup Middleware. DAV clients need their OPTIONS request to reach the WebDAV
 // handler, so browser CORS preflight handling is limited to the web application.
@@ -108,6 +124,32 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
+  const usesHttps = requestUsesHttps(req);
+
+  // Plain HTTP is supported for local/testing access. Its session remains
+  // unverified for 2FA, so presenting it later over HTTPS cannot bypass MFA.
+  if (!usesHttps) {
+    const httpSession: UserSession = {
+      username,
+      verified2fa: false
+    };
+    const httpToken = jwt.sign(httpSession, config.jwtSecret, { expiresIn: FULL_SESSION_DURATION });
+
+    res.cookie('webvault_session', httpToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'strict',
+      maxAge: FULL_SESSION_MAX_AGE_MS
+    });
+
+    return res.json({
+      success: true,
+      need_2fa: false,
+      setup_required: false,
+      user: username
+    });
+  }
+
   // Check if TOTP is already configured
   const setupRequired = !config.totpSecret;
 
@@ -122,7 +164,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   // Set as HttpOnly, SameSite cookie
   res.cookie('webvault_session', tempToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,
     sameSite: 'strict',
     maxAge: 15 * 60 * 1000 // 15 mins to finish 2FA
   });
@@ -195,7 +237,7 @@ app.post('/api/auth/verify-2fa', authLimiter, authenticateToken, async (req, res
   // Set full auth session cookie
   res.cookie('webvault_session', fullToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: requestUsesHttps(req),
     sameSite: 'strict',
     maxAge: FULL_SESSION_MAX_AGE_MS // 30 days
   });
@@ -265,7 +307,7 @@ app.get('/api/auth/status', (req, res) => {
   const config = loadConfig();
   try {
     const decoded = jwt.verify(token, config.jwtSecret) as UserSession;
-    if (decoded.verified2fa) {
+    if (decoded.verified2fa || !requestUsesHttps(req)) {
       return res.json({ authenticated: true, user: decoded.username, displayName: config.displayName });
     }
     return res.json({ authenticated: false, partial: true });
@@ -280,7 +322,26 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// 6. Update Account Credentials (username, password, display name)
+// 6. Read account settings. Older installations stored only a bcrypt hash, so
+// their dedicated DAV password is rotated once to make it displayable.
+app.get('/api/auth/account-settings', requireFullAuth, async (_req, res) => {
+  let webdavPassword = decryptWebdavPassword();
+  let generatedWebdavPassword = false;
+
+  if (!webdavPassword) {
+    webdavPassword = generateWebdavPassword();
+    saveConfig({
+      webdavPasswordHash: await bcrypt.hash(webdavPassword, 10),
+      webdavPasswordEncrypted: encryptWebdavPassword(webdavPassword)
+    });
+    generatedWebdavPassword = true;
+  }
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, webdavPassword, generatedWebdavPassword });
+});
+
+// 7. Update Account Credentials (username, password, display name, DAV password)
 app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
   const { username, password, displayName, webdavPassword } = req.body;
   const config = loadConfig();
@@ -314,17 +375,14 @@ app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
   if (typeof webdavPassword === 'string') {
     let passwordToStore = webdavPassword;
     if (passwordToStore.length === 0) {
-      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-      generatedWebdavPassword = Array.from(
-        { length: 8 },
-        () => alphabet[crypto.randomInt(alphabet.length)]
-      ).join('');
+      generatedWebdavPassword = generateWebdavPassword();
       passwordToStore = generatedWebdavPassword;
     } else if (passwordToStore.length < 8) {
       return res.status(400).json({ error: 'WebDAV password must be at least 8 characters long.' });
     }
 
     updates.webdavPasswordHash = await bcrypt.hash(passwordToStore, 10);
+    updates.webdavPasswordEncrypted = encryptWebdavPassword(passwordToStore);
   }
 
   if (Object.keys(updates).length === 0) {

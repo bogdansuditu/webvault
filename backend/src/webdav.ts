@@ -5,6 +5,7 @@ import path from 'path';
 import { v2 as webdav } from 'webdav-server';
 
 import { loadConfig, STORAGE_DIR } from './config.js';
+import { requestUsesHttps } from './requestSecurity.js';
 
 const DAV_MOUNT_PATH = '/webdav';
 const TRASH_DIRECTORY = '.TrashFolder';
@@ -62,19 +63,6 @@ function parseBasicCredentials(header: string | undefined): { username: string; 
     };
   } catch {
     return null;
-  }
-}
-
-function requestUsesHttps(req: Request): boolean {
-  if (req.secure) return true;
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-  if (forwardedProto === 'https') return true;
-
-  try {
-    const visitor = JSON.parse(String(req.headers['cf-visitor'] || '{}'));
-    return visitor.scheme === 'https';
-  } catch {
-    return false;
   }
 }
 

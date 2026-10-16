@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { loadConfig } from './config.js';
+import { requestUsesHttps } from './requestSecurity.js';
 
 export interface UserSession {
   username: string;
@@ -34,10 +35,11 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   }
 }
 
-// Restricts access to fully 2FA-verified users
+// HTTPS requires a fully 2FA-verified session. Plain HTTP is intended only for
+// local/testing access and accepts a password-verified session.
 export function requireFullAuth(req: Request, res: Response, next: NextFunction) {
   authenticateToken(req, res, () => {
-    if (!req.user || !req.user.verified2fa) {
+    if (!req.user || (requestUsesHttps(req) && !req.user.verified2fa)) {
       return res.status(403).json({ error: '2FA verification required to perform this action.' });
     }
     next();
