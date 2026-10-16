@@ -66,6 +66,89 @@ webvault/
 └── docker-compose.yml        # Volumes, Ports & Secrets Orchestrator
 ```
 
+### Current functionality map
+
+WebVault currently has one configured application account. The React client and
+the JSON API are served by the same Express process on port `8080`.
+
+| Area | Current behavior |
+| --- | --- |
+| Authentication | Username/password login, first-run TOTP enrollment, TOTP verification, 30-day signed HTTP-only session cookie, logout, and authenticated account updates. |
+| Account settings | Display name, username, and application password can be changed from **User Account Settings**. |
+| Storage | All browser file operations are constrained to `STORAGE_DIR` (normally `/app/storage`). `Documents`, `Downloads`, and `.TrashFolder` are created automatically. |
+| Browsing | Grid/list views, breadcrumbs, history, search/filtering, column sorting, multi-selection, keyboard navigation, and an item inspector. |
+| File operations | Streaming uploads up to 2 GB per file, downloads, folder creation, rename/move, drag-and-drop relocation, ZIP creation/extraction, trash, empty trash, and restore-to-original-location. |
+| Previewing | Images (including TIFF), text, Markdown, CSV, PDF, audio, and video. Other formats download directly. |
+| Clipboard | Pasted images and text are converted to files and uploaded to the current directory. |
+| Sharing | Public short links can package selected files into a streamed ZIP, optionally protected by a separate share password and limited by `SHARE_MAX_USES`. |
+| Appearance | Server-persisted theme selection plus client-persisted light/dark mode and view preferences. |
+
+The web client uses the authenticated `/api/files/*` routes. Files are accessed
+directly from the mounted storage volume; there is no database or per-user
+storage table. This distinction is important for the WebDAV authorization
+boundary described below.
+
+### WebDAV integration
+
+WebDAV runs **inside the existing application container and Express
+process**, not as a host service or a second externally exposed daemon. The
+endpoint is:
+
+```text
+https://<your-cloudflare-hostname>/webdav
+```
+
+The Cloudflare Tunnel continues to target the container's existing HTTP origin
+on port `8080`; public TLS is terminated by Cloudflare. No additional Docker
+port or host installation is required.
+
+Security and behavior:
+
+* WebDAV uses HTTP Basic authentication over HTTPS and does not accept the
+  application login password or the browser session cookie.
+* Production DAV requests are rejected unless Express sees HTTPS directly or
+  through Cloudflare's forwarded-protocol headers.
+* A dedicated WebDAV password is set or replaced in **User Account Settings**,
+  directly below **New Password (Optional)**. Only a salted password hash is
+  persisted in `/app/config/config.json`.
+* Saving account settings with an empty WebDAV password generates a random
+  8-character password. The plaintext is shown once so it can be copied to the
+  DAV client; only its bcrypt hash is persisted.
+* The WebDAV username follows the configured application username, while the
+  password remains independent.
+* Authentication attempts are rate-limited using the same Cloudflare-aware
+  client IP handling as the login flow.
+* DAV paths are resolved against `/app/storage` and are checked for traversal
+  and symbolic-link escapes. `/app/storage/.TrashFolder` is neither listed nor
+  directly accessible. Application configuration, share metadata, TOTP data,
+  and the application password hash are never exposed.
+* The implementation supports the normal read/write client operations:
+  `OPTIONS`, `PROPFIND`, `GET`, `HEAD`, `PUT`, `MKCOL`, `DELETE`, `COPY`,
+  `MOVE`, `LOCK`, and `UNLOCK` (plus the property behavior required by the
+  selected DAV implementation).
+* Requests must preserve DAV methods and the `Authorization`, `Destination`,
+  `Depth`, `If`, `Lock-Token`, and `Overwrite` headers through any Cloudflare
+  configuration placed in front of the tunnel.
+
+WebDAV provides full read/write access to the allowed storage tree, including
+file uploads, edits, folder creation, copying, moving, locking, and deletion.
+WebDAV deletion is a direct filesystem deletion and does not use WebVault's
+browser-only Trash workflow.
+
+### Connecting a BOOX device
+
+In the BOOX WebDAV account screen, use:
+
+* **WebDAV website:** `https://<your-cloudflare-hostname>/webdav/`
+* **Account:** the username shown in WebVault's User Account Settings
+* **Password:** the dedicated WebDAV password from User Account Settings
+
+The trailing slash in the WebDAV website is recommended for compatibility.
+BOOX can browse and download files exposed by a DAV provider and can upload
+supported document formats such as EPUB and PDF. WebVault does not require a
+separate host port or Cloudflare configuration beyond the existing HTTPS
+tunnel to port `8080`.
+
 ---
 
 ## 🚀 Quickstart: Deploying with Docker

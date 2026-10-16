@@ -52,6 +52,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const [editUsername, setEditUsername] = useState(user);
   const [editDisplayName, setEditDisplayName] = useState(displayName);
   const [editPassword, setEditPassword] = useState('');
+  const [editWebdavPassword, setEditWebdavPassword] = useState('');
+  const [generatedWebdavPassword, setGeneratedWebdavPassword] = useState('');
   const [editError, setEditError] = useState('');
 
   // Selection Tracking State
@@ -637,6 +639,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       setEditError('Password must be at least 4 characters.');
       return;
     }
+    if (editWebdavPassword && editWebdavPassword.length < 8) {
+      setEditError('WebDAV password must be at least 8 characters. Leave it blank to generate one.');
+      return;
+    }
 
     try {
       const res = await fetch(`${apiBase}/api/auth/update-account`, {
@@ -645,7 +651,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         body: JSON.stringify({
           username: editUsername.trim(),
           displayName: editDisplayName.trim(),
-          password: editPassword ? editPassword : undefined
+          password: editPassword ? editPassword : undefined,
+          webdavPassword: editWebdavPassword
         })
       });
 
@@ -656,11 +663,18 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
 
       setDisplayName(data.displayName);
       setUser(data.user);
-      setUserModalVisible(false);
       setEditPassword('');
       setEditError('');
-      setNotification({ message: 'Account details updated successfully!' });
-      setTimeout(() => setNotification(null), 2500);
+      if (data.generatedWebdavPassword) {
+        setGeneratedWebdavPassword(data.generatedWebdavPassword);
+        setEditWebdavPassword(data.generatedWebdavPassword);
+      } else {
+        setGeneratedWebdavPassword('');
+        setEditWebdavPassword('');
+        setUserModalVisible(false);
+        setNotification({ message: 'Account details updated successfully!' });
+        setTimeout(() => setNotification(null), 2500);
+      }
     } catch (err: any) {
       setEditError(err.message);
     }
@@ -1464,6 +1478,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                     setEditUsername(user);
                     setEditDisplayName(displayName);
                     setEditPassword('');
+                    setEditWebdavPassword('');
+                    setGeneratedWebdavPassword('');
                     setEditError('');
                     setUserModalVisible(true);
                     setUserMenuVisible(false);
@@ -2104,6 +2120,30 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 />
               </div>
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span className="details-label" style={{ fontSize: '10px' }}>WebDAV Password</span>
+                <input
+                  type="text"
+                  className="dialog-input"
+                  placeholder="Leave blank to generate 8 characters"
+                  value={editWebdavPassword}
+                  onChange={(e) => {
+                    setEditWebdavPassword(e.target.value);
+                    setGeneratedWebdavPassword('');
+                  }}
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  Used only with https://your-domain/webdav. It is separate from your application password.
+                </span>
+              </div>
+
+              {generatedWebdavPassword && (
+                <div style={{ padding: '9px', borderRadius: '6px', background: 'var(--accent-light)', fontSize: '11px', lineHeight: 1.4 }}>
+                  Generated WebDAV password: <code style={{ userSelect: 'all', fontWeight: 700 }}>{generatedWebdavPassword}</code>
+                  <div style={{ marginTop: '3px', color: 'var(--text-secondary)' }}>Copy it now; only its hash is stored.</div>
+                </div>
+              )}
+
               {/* Dynamic Theme Selector Dropdown */}
               {themeData && themeData.themes && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -2143,6 +2183,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   setUserModalVisible(false);
                   setEditError('');
                   setEditPassword('');
+                  setEditWebdavPassword('');
+                  setGeneratedWebdavPassword('');
                 }}
               >
                 Cancel

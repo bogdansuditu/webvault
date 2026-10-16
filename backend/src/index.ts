@@ -15,17 +15,23 @@ import rateLimit from 'express-rate-limit';
 import { loadConfig, saveConfig, STORAGE_DIR, CONFIG_DIR } from './config.js';
 import { authenticateToken, requireFullAuth, UserSession } from './middleware.js';
 import * as fileService from './fileService.js';
+import { authenticateWebDav, createWebDavHandler } from './webdav.js';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const FULL_SESSION_DURATION = '30d';
 const FULL_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Setup Middleware
-app.use(cors({
+// Setup Middleware. DAV clients need their OPTIONS request to reach the WebDAV
+// handler, so browser CORS preflight handling is limited to the web application.
+const browserCors = cors({
   origin: true, // In development allow any origin; in Docker we'll serve static assets same-origin
   credentials: true
-}));
+});
+app.use((req, res, next) => {
+  if (req.path === '/webdav' || req.path.startsWith('/webdav/')) return next();
+  browserCors(req, res, next);
+});
 app.use(cookieParser());
 app.use(express.json());
 
@@ -276,7 +282,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 // 6. Update Account Credentials (username, password, display name)
 app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
-  const { username, password, displayName } = req.body;
+  const { username, password, displayName, webdavPassword } = req.body;
   const config = loadConfig();
 
   const updates: Partial<any> = {};
@@ -304,6 +310,23 @@ app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
     }
   }
 
+  let generatedWebdavPassword: string | undefined;
+  if (typeof webdavPassword === 'string') {
+    let passwordToStore = webdavPassword;
+    if (passwordToStore.length === 0) {
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+      generatedWebdavPassword = Array.from(
+        { length: 8 },
+        () => alphabet[crypto.randomInt(alphabet.length)]
+      ).join('');
+      passwordToStore = generatedWebdavPassword;
+    } else if (passwordToStore.length < 8) {
+      return res.status(400).json({ error: 'WebDAV password must be at least 8 characters long.' });
+    }
+
+    updates.webdavPasswordHash = await bcrypt.hash(passwordToStore, 10);
+  }
+
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'No valid account updates provided.' });
   }
@@ -313,12 +336,19 @@ app.post('/api/auth/update-account', requireFullAuth, async (req, res) => {
     res.json({
       success: true,
       user: updates.appUser || config.appUser,
-      displayName: updates.displayName || config.displayName
+      displayName: updates.displayName || config.displayName,
+      webdavPasswordUpdated: !!updates.webdavPasswordHash,
+      generatedWebdavPassword
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to update account details.' });
   }
 });
+
+// WebDAV uses a dedicated Basic-auth password and exposes /app/storage while
+// explicitly excluding the application's .TrashFolder.
+app.use('/webdav', authenticateWebDav);
+app.use(createWebDavHandler());
 
 
 // ==========================================

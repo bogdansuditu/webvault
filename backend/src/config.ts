@@ -12,6 +12,7 @@ export interface AppConfig {
   appPasswordHash: string; // bcrypt hash
   totpSecret: string;
   displayName: string;
+  webdavPasswordHash: string;
   shareSecret: string;
   shareMaxUses: number;
 }
@@ -23,6 +24,7 @@ let activeConfig: AppConfig = {
   appPasswordHash: process.env.APP_PASSWORD_HASH || '', // We will expect this from env, or default to hash of 'admin' if empty
   totpSecret: process.env.TOTP_SECRET || '',
   displayName: process.env.APP_DISPLAY_NAME || 'Administrator',
+  webdavPasswordHash: process.env.WEBDAV_PASSWORD_HASH || '',
   shareSecret: process.env.SHARE_SECRET || 'webvault-default-secure-sharing-secret-key-change-me',
   shareMaxUses: Number(process.env.SHARE_MAX_USES) || 5,
 };
@@ -42,6 +44,7 @@ export function loadConfig(): AppConfig {
       activeConfig.appPasswordHash = json.appPasswordHash || activeConfig.appPasswordHash;
       activeConfig.jwtSecret = json.jwtSecret || activeConfig.jwtSecret;
       activeConfig.displayName = json.displayName || activeConfig.displayName;
+      activeConfig.webdavPasswordHash = json.webdavPasswordHash || activeConfig.webdavPasswordHash;
       activeConfig.shareSecret = json.shareSecret || activeConfig.shareSecret;
       activeConfig.shareMaxUses = json.shareMaxUses !== undefined ? Number(json.shareMaxUses) : activeConfig.shareMaxUses;
     }
@@ -73,6 +76,7 @@ export function saveConfig(updates: Partial<AppConfig>): void {
           appPasswordHash: activeConfig.appPasswordHash,
           totpSecret: activeConfig.totpSecret,
           displayName: activeConfig.displayName,
+          webdavPasswordHash: activeConfig.webdavPasswordHash,
           shareSecret: activeConfig.shareSecret,
           shareMaxUses: activeConfig.shareMaxUses,
         },
