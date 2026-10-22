@@ -7,6 +7,7 @@ import {
 } from '../../assets/icons';
 import { ContextMenu, ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { MarkdownPreview } from './MarkdownPreview';
+import { MarkdownEditor } from './MarkdownEditor';
 import { CSVPreview } from './CSVPreview';
 import { TiffPreview } from './TiffPreview';
 
@@ -65,6 +66,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const [viewerTextContent, setViewerTextContent] = useState('');
   const [viewerLoading, setViewerLoading] = useState(false);
+  const [isEditingNewNote, setIsEditingNewNote] = useState(false);
+  const [isEditingExistingFile, setIsEditingExistingFile] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const isEditingFile = isEditingNewNote || isEditingExistingFile;
 
   // Files List
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -234,6 +239,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   };
 
   const updateActivePreview = async (item: FileItem | null) => {
+    setIsEditingNewNote(false);
+    setIsEditingExistingFile(false);
     setViewingFile(item);
     if (!item) {
       setViewerTextContent('');
@@ -435,6 +442,150 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     } finally {
       setActiveModal(null);
       setModalInput('');
+    }
+  };
+
+  const executeCreateNote = async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/files/create-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: currentPath })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create note');
+      }
+
+      const noteName = data.note.split('/').pop() || 'New note.md';
+      setViewingFile({
+        name: noteName,
+        relativePath: data.note,
+        isDirectory: false,
+        size: 0,
+        mtime: new Date().toISOString(),
+        birthtime: new Date().toISOString(),
+        mimeType: 'text'
+      });
+      setViewerTextContent('');
+      setIsEditingNewNote(true);
+      setViewerVisible(true);
+      fetchDirectory(currentPath);
+    } catch (err: any) {
+      setNotification({ message: err.message || 'Failed to create note' });
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const closeNoteEditor = () => {
+    setViewerVisible(false);
+    setViewingFile(null);
+    setViewerTextContent('');
+    setIsEditingNewNote(false);
+    setIsEditingExistingFile(false);
+  };
+
+  const executeEditFile = async (item: FileItem) => {
+    setViewerVisible(true);
+    setViewingFile(item);
+    setViewerTextContent('');
+    setIsEditingExistingFile(true);
+    setViewerLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/files/download?path=${encodeURIComponent(item.relativePath)}`);
+      if (!res.ok) throw new Error('Failed to load file');
+      setViewerTextContent(await res.text());
+    } catch (err: any) {
+      setViewerVisible(false);
+      setViewingFile(null);
+      setIsEditingExistingFile(false);
+      setNotification({ message: err.message || 'Failed to load file' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setViewerLoading(false);
+    }
+  };
+
+  const executeCancelNote = async () => {
+    if (!viewingFile || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      const res = await fetch(`${apiBase}/api/files/cancel-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: viewingFile.relativePath })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to cancel note');
+      }
+      closeNoteEditor();
+      fetchDirectory(currentPath);
+    } catch (err: any) {
+      setNotification({ message: err.message || 'Failed to cancel note' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const executeSaveNote = async () => {
+    if (!viewingFile || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      const res = await fetch(`${apiBase}/api/files/save-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: viewingFile.relativePath, content: viewerTextContent })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save note');
+      }
+      closeNoteEditor();
+      fetchDirectory(currentPath);
+    } catch (err: any) {
+      setNotification({ message: err.message || 'Failed to save note' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const executeSaveExistingFile = async () => {
+    if (!viewingFile || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      const res = await fetch(`${apiBase}/api/files/save-text-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: viewingFile.relativePath, content: viewerTextContent })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save file');
+      closeNoteEditor();
+      fetchDirectory(currentPath);
+    } catch (err: any) {
+      setNotification({ message: err.message || 'Failed to save file' });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const executeCancelEditor = () => {
+    if (isEditingNewNote) {
+      void executeCancelNote();
+    } else {
+      closeNoteEditor();
+    }
+  };
+
+  const executeSaveEditor = () => {
+    if (isEditingNewNote) {
+      void executeSaveNote();
+    } else {
+      void executeSaveExistingFile();
     }
   };
 
@@ -968,6 +1119,12 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         label: 'Open',
         onClick: () => handleDoubleClick(single)
       });
+      if (!single.isDirectory && single.mimeType === 'text') {
+        menuItems.push({
+          label: 'Edit',
+          onClick: () => executeEditFile(single)
+        });
+      }
       const isInsideTrash = currentPath.includes('.TrashFolder') || currentPath === 'Trash';
 
       menuItems.push({
@@ -1094,6 +1251,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         }
       });
       menuItems.push({
+        label: 'New note',
+        onClick: executeCreateNote
+      });
+      menuItems.push({
         label: 'Upload Files...',
         onClick: triggerUpload
       });
@@ -1165,6 +1326,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         if (viewerVisible) {
+          if (isEditingFile) {
+            executeCancelEditor();
+            return;
+          }
           setViewerVisible(false);
           setViewingFile(null);
           setViewerTextContent('');
@@ -1179,6 +1344,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       if (e.key === 'Escape' || e.code === 'Escape') {
         if (viewerVisible) {
           e.preventDefault();
+          if (isEditingFile) {
+            executeCancelEditor();
+            return;
+          }
           setViewerVisible(false);
           setViewingFile(null);
           setViewerTextContent('');
@@ -1301,7 +1470,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedItems, filteredFiles, viewMode, viewerVisible]);
+  }, [selectedItems, filteredFiles, viewMode, viewerVisible, isEditingFile]);
 
   return (
     <IconSetContext.Provider value={iconSet}>
@@ -2237,6 +2406,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
         <div 
           className="modal-overlay" 
           onClick={() => {
+            if (isEditingFile) {
+              executeCancelEditor();
+              return;
+            }
             setViewerVisible(false);
             setViewingFile(null);
             setViewerTextContent('');
@@ -2286,6 +2459,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button
                   onClick={() => {
+                    if (isEditingFile) {
+                      executeCancelEditor();
+                      return;
+                    }
                     setViewerVisible(false);
                     setViewingFile(null);
                     setViewerTextContent('');
@@ -2300,7 +2477,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                     padding: 0,
                     outline: 'none'
                   }}
-                  title="Close Preview"
+                  title={isEditingFile ? 'Cancel Editing' : 'Close Preview'}
                 />
                 <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ffbd2e', border: '1px solid #dea123' }} />
                 <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#27c93f', border: '1px solid #1aab29' }} />
@@ -2324,7 +2501,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               {/* Right Action Menu */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
-                  onClick={() => triggerDownload([viewingFile])} 
+                  onClick={isEditingFile ? executeSaveEditor : () => triggerDownload([viewingFile])}
+                  disabled={noteSaving}
                   style={{ 
                     background: 'var(--accent-color)', 
                     border: 'none', 
@@ -2340,14 +2518,19 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   onMouseOver={(e) => e.currentTarget.style.background = 'var(--accent-hover)'}
                   onMouseOut={(e) => e.currentTarget.style.background = 'var(--accent-color)'}
                 >
-                  Download
+                  {isEditingFile ? (noteSaving ? 'Saving...' : 'Save') : 'Download'}
                 </button>
                 <button 
                   onClick={() => {
+                    if (isEditingFile) {
+                      executeCancelEditor();
+                      return;
+                    }
                     setViewerVisible(false);
                     setViewingFile(null);
                     setViewerTextContent('');
-                  }} 
+                  }}
+                  disabled={noteSaving}
                   style={{ 
                     background: 'var(--sidebar-active)', 
                     border: 'none', 
@@ -2363,7 +2546,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   onMouseOver={(e) => e.currentTarget.style.background = 'var(--item-hover)'}
                   onMouseOut={(e) => e.currentTarget.style.background = 'var(--sidebar-active)'}
                 >
-                  Close
+                  {isEditingFile ? 'Cancel' : 'Close'}
                 </button>
               </div>
             </div>
@@ -2384,20 +2567,40 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 </div>
               ) : (
                 <>
+                  {/* New Markdown Note Editor with live rendered preview */}
+                  {isEditingFile && viewingFile.name.toLowerCase().endsWith('.md') && (
+                    <div className="markdown-editor-container">
+                      <MarkdownEditor value={viewerTextContent} onChange={setViewerTextContent} />
+                    </div>
+                  )}
+
+                  {isEditingFile && !viewingFile.name.toLowerCase().endsWith('.md') && (
+                    <div className="markdown-editor-container">
+                      <textarea
+                        className="plain-text-editor"
+                        autoFocus
+                        aria-label={`Edit ${viewingFile.name}`}
+                        value={viewerTextContent}
+                        onChange={(event) => setViewerTextContent(event.target.value)}
+                        spellCheck={!viewingFile.name.toLowerCase().endsWith('.csv')}
+                      />
+                    </div>
+                  )}
+
                   {/* Markdown File Preview */}
-                  {viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.md') && (
+                  {!isEditingFile && viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.md') && (
                     <div style={{ padding: '30px 40px', width: '100%', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
                       <MarkdownPreview content={viewerTextContent} isDarkMode={isDarkMode} />
                     </div>
                   )}
 
                   {/* CSV File Preview */}
-                  {viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.csv') && (
+                  {!isEditingFile && viewingFile.mimeType === 'text' && viewingFile.name.toLowerCase().endsWith('.csv') && (
                     <CSVPreview content={viewerTextContent} />
                   )}
 
                   {/* Standard Text Preview */}
-                  {viewingFile.mimeType === 'text' && !viewingFile.name.toLowerCase().endsWith('.md') && !viewingFile.name.toLowerCase().endsWith('.csv') && (
+                  {!isEditingFile && viewingFile.mimeType === 'text' && !viewingFile.name.toLowerCase().endsWith('.md') && !viewingFile.name.toLowerCase().endsWith('.csv') && (
                     <div 
                       style={{
                         padding: '30px',

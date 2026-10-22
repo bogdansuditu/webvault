@@ -176,6 +176,104 @@ export function createFolder(parentRelativePath: string, folderName: string): st
   return path.relative(resolveSafePath(''), newFolderPath);
 }
 
+function availableFilePath(parentPath: string, preferredName: string): string {
+  const extension = path.extname(preferredName);
+  const baseName = path.basename(preferredName, extension);
+  let candidate = path.join(parentPath, preferredName);
+  let counter = 2;
+
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(parentPath, `${baseName} ${counter}${extension}`);
+    counter++;
+  }
+
+  return candidate;
+}
+
+// Notes are created immediately so the editor has a real file to save or cancel.
+export function createNote(parentRelativePath: string): string {
+  const safeParent = resolveSafePath(parentRelativePath);
+  if (!fs.existsSync(safeParent) || !fs.statSync(safeParent).isDirectory()) {
+    throw new Error('Parent directory does not exist');
+  }
+
+  const notePath = availableFilePath(safeParent, 'New note.md');
+  fs.writeFileSync(notePath, '', { encoding: 'utf8', flag: 'wx' });
+  return path.relative(resolveSafePath(''), notePath);
+}
+
+function noteTitleFromMarkdown(content: string): string | null {
+  const plainText = content
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s{0,3}(?:#{1,6}|>|[-+*]\s|\d+[.)]\s)\s*/gm, '')
+    .replace(/[*_~`\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!plainText) return null;
+
+  const title = plainText
+    .split(' ')
+    .slice(0, 6)
+    .join(' ')
+    .slice(0, 80)
+    .replace(/[\/:*?"<>|\x00-\x1f\x7f-\x9f]/g, '')
+    .replace(/[. ]+$/g, '')
+    .trim();
+
+  return title || null;
+}
+
+export function saveNote(noteRelativePath: string, content: string): string {
+  const safeNotePath = resolveSafePath(noteRelativePath);
+  if (!fs.existsSync(safeNotePath) || !fs.statSync(safeNotePath).isFile() || path.extname(safeNotePath).toLowerCase() !== '.md') {
+    throw new Error('Markdown note does not exist');
+  }
+
+  fs.writeFileSync(safeNotePath, content, 'utf8');
+
+  const title = noteTitleFromMarkdown(content);
+  if (!title) return noteRelativePath;
+
+  const desiredName = `${title}.md`;
+  if (path.basename(safeNotePath) === desiredName) return noteRelativePath;
+
+  const destination = availableFilePath(path.dirname(safeNotePath), desiredName);
+  fs.renameSync(safeNotePath, destination);
+  return path.relative(resolveSafePath(''), destination);
+}
+
+export function saveTextFile(fileRelativePath: string, content: string): string {
+  const safeFilePath = resolveSafePath(fileRelativePath);
+  const editableExtensions = new Set(['.txt', '.md', '.csv', '.json', '.js', '.ts', '.html', '.css', '.yaml', '.yml']);
+  if (!fs.existsSync(safeFilePath) || !fs.statSync(safeFilePath).isFile() || !editableExtensions.has(path.extname(safeFilePath).toLowerCase())) {
+    throw new Error('Editable text file does not exist');
+  }
+
+  fs.writeFileSync(safeFilePath, content, 'utf8');
+  return fileRelativePath;
+}
+
+export function cancelNote(noteRelativePath: string): string {
+  const safeNotePath = resolveSafePath(noteRelativePath);
+  const filename = path.basename(safeNotePath);
+  if (!/^New note(?: \d+)?\.md$/.test(filename)) {
+    throw new Error('Only an unsaved new note can be cancelled');
+  }
+  if (!fs.existsSync(safeNotePath) || !fs.statSync(safeNotePath).isFile()) {
+    throw new Error('New note does not exist');
+  }
+  if (fs.readFileSync(safeNotePath, 'utf8') !== '') {
+    throw new Error('Only an empty new note can be cancelled');
+  }
+
+  fs.unlinkSync(safeNotePath);
+  return noteRelativePath;
+}
+
 // Rename or Move files/folders
 export function renameOrMove(oldRelativePath: string, newRelativePath: string): string {
   const oldSafe = resolveSafePath(oldRelativePath);

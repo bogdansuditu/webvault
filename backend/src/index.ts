@@ -439,6 +439,56 @@ app.post('/api/files/create-folder', requireFullAuth, (req, res) => {
   }
 });
 
+// Create, save, or cancel a Markdown note.
+app.post('/api/files/create-note', requireFullAuth, (req, res) => {
+  const { path: parentPath } = req.body;
+  try {
+    const note = fileService.createNote(parentPath || '');
+    res.json({ success: true, note });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/files/save-note', requireFullAuth, (req, res) => {
+  const { path: notePath, content } = req.body;
+  if (!notePath || typeof content !== 'string') {
+    return res.status(400).json({ error: 'path and content are required' });
+  }
+  try {
+    const note = fileService.saveNote(notePath, content);
+    res.json({ success: true, note });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/files/save-text-file', requireFullAuth, (req, res) => {
+  const { path: filePath, content } = req.body;
+  if (!filePath || typeof content !== 'string') {
+    return res.status(400).json({ error: 'path and content are required' });
+  }
+  try {
+    const file = fileService.saveTextFile(filePath, content);
+    res.json({ success: true, file });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/files/cancel-note', requireFullAuth, (req, res) => {
+  const { path: notePath } = req.body;
+  if (!notePath) {
+    return res.status(400).json({ error: 'path is required' });
+  }
+  try {
+    const note = fileService.cancelNote(notePath);
+    res.json({ success: true, note });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Rename / Move
 app.post('/api/files/rename', requireFullAuth, (req, res) => {
   const { oldPath, newPath } = req.body;
