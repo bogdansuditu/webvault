@@ -12,6 +12,7 @@ build/
 storage/
 config/*
 !config/theme.json
+!config/shares.json
 
 # Local Environment Variables & Secrets
 .env
