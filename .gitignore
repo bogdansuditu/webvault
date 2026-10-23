@@ -10,7 +10,8 @@ build/
 
 # Local Mounted Storage & Dynamic Configuration Volumes
 storage/
-config/config.json
+config/*
+!config/theme.json
 
 # Local Environment Variables & Secrets
 .env

@@ -49,6 +49,111 @@ export interface FileItem {
   birthtime: Date;
   mimeType?: string;
   hasTrashOrigin?: boolean;
+  tags?: TagColor[];
+}
+
+export const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'] as const;
+export type TagColor = typeof TAG_COLORS[number];
+
+interface FinderMetadata {
+  favorites: string[];
+  tags: Record<string, TagColor[]>;
+}
+
+const FINDER_METADATA_FILE = path.join(CONFIG_DIR, 'finder_metadata.json');
+
+function loadFinderMetadata(pruneMissing = true): FinderMetadata {
+  let metadata: FinderMetadata = { favorites: ['Documents', 'Downloads'], tags: {} };
+  try {
+    if (fs.existsSync(FINDER_METADATA_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(FINDER_METADATA_FILE, 'utf-8'));
+      metadata = {
+        favorites: Array.isArray(parsed.favorites) ? parsed.favorites : metadata.favorites,
+        tags: parsed.tags && typeof parsed.tags === 'object' ? parsed.tags : {}
+      };
+    }
+  } catch (err) {
+    console.error('Failed to read finder_metadata.json:', err);
+  }
+
+  if (!pruneMissing) return metadata;
+
+  const pathExists = (relativePath: string) => {
+    try { return fs.existsSync(resolveSafePath(relativePath)); } catch { return false; }
+  };
+  const favorites = metadata.favorites.filter((favorite, index, all) =>
+    typeof favorite === 'string' && favorite !== '' && all.indexOf(favorite) === index &&
+    pathExists(favorite) && fs.statSync(resolveSafePath(favorite)).isDirectory()
+  );
+  const tags = Object.fromEntries(Object.entries(metadata.tags).filter(([tagPath, colors]) =>
+    pathExists(tagPath) && Array.isArray(colors) && colors.length > 0
+  ).map(([tagPath, colors]) => [tagPath, colors.filter((color): color is TagColor => TAG_COLORS.includes(color as TagColor))]));
+
+  const cleaned = { favorites, tags };
+  if (JSON.stringify(cleaned) !== JSON.stringify(metadata)) saveFinderMetadata(cleaned);
+  return cleaned;
+}
+
+function saveFinderMetadata(metadata: FinderMetadata): void {
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(FINDER_METADATA_FILE, JSON.stringify(metadata, null, 2), 'utf-8');
+}
+
+function remapMetadataPath(oldPath: string, newPath: string): void {
+  const metadata = loadFinderMetadata(false);
+  const remap = (candidate: string) => candidate === oldPath || candidate.startsWith(`${oldPath}/`)
+    ? `${newPath}${candidate.slice(oldPath.length)}` : candidate;
+  metadata.favorites = metadata.favorites.map(remap);
+  metadata.tags = Object.fromEntries(Object.entries(metadata.tags).map(([tagPath, colors]) => [remap(tagPath), colors]));
+  saveFinderMetadata(metadata);
+}
+
+function removeMetadataPath(targetPath: string): void {
+  const metadata = loadFinderMetadata();
+  const matches = (candidate: string) => candidate === targetPath || candidate.startsWith(`${targetPath}/`);
+  metadata.favorites = metadata.favorites.filter(favorite => !matches(favorite));
+  metadata.tags = Object.fromEntries(Object.entries(metadata.tags).filter(([tagPath]) => !matches(tagPath)));
+  saveFinderMetadata(metadata);
+}
+
+function removeFavoritesPath(targetPath: string): void {
+  const metadata = loadFinderMetadata(false);
+  const matches = (candidate: string) => candidate === targetPath || candidate.startsWith(`${targetPath}/`);
+  metadata.favorites = metadata.favorites.filter(favorite => !matches(favorite));
+  saveFinderMetadata(metadata);
+}
+
+export function getFavorites(): string[] {
+  return loadFinderMetadata().favorites;
+}
+
+export function addFavorite(relativePath: string): string[] {
+  const safePath = resolveSafePath(relativePath);
+  if (!relativePath || !fs.existsSync(safePath) || !fs.statSync(safePath).isDirectory()) throw new Error('Favorite must be an existing folder');
+  const metadata = loadFinderMetadata();
+  if (!metadata.favorites.includes(relativePath)) metadata.favorites.push(relativePath);
+  saveFinderMetadata(metadata);
+  return metadata.favorites;
+}
+
+export function removeFavorite(relativePath: string): string[] {
+  const metadata = loadFinderMetadata();
+  metadata.favorites = metadata.favorites.filter(favorite => favorite !== relativePath);
+  saveFinderMetadata(metadata);
+  return metadata.favorites;
+}
+
+export function setTags(paths: string[], color: TagColor): Record<string, TagColor[]> {
+  if (!TAG_COLORS.includes(color)) throw new Error('Invalid tag color');
+  const metadata = loadFinderMetadata();
+  for (const relativePath of paths) {
+    if (!fs.existsSync(resolveSafePath(relativePath))) continue;
+    const colors = metadata.tags[relativePath] || [];
+    metadata.tags[relativePath] = colors.includes(color) ? colors.filter(value => value !== color) : [...colors, color];
+    if (metadata.tags[relativePath].length === 0) delete metadata.tags[relativePath];
+  }
+  saveFinderMetadata(metadata);
+  return metadata.tags;
 }
 
 // Map extensions to visual groups / mime types
@@ -119,6 +224,7 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
   const files = fs.readdirSync(safePath);
   const items: FileItem[] = [];
   const origins = loadTrashOrigins();
+  const metadata = loadFinderMetadata();
 
   for (const file of files) {
     // Hide system files and the Trash directory in default listings
@@ -144,7 +250,8 @@ export async function listDirectory(relativePath: string): Promise<FileItem[]> {
         mtime: itemStat.mtime,
         birthtime: itemStat.birthtime,
         mimeType: getMimeType(file, itemStat.isDirectory()),
-        hasTrashOrigin: !!origins[itemRelativePath]
+        hasTrashOrigin: !!origins[itemRelativePath],
+        tags: metadata.tags[itemRelativePath] || []
       });
     } catch (e) {
       // Skip problematic files
@@ -243,7 +350,9 @@ export function saveNote(noteRelativePath: string, content: string): string {
 
   const destination = availableFilePath(path.dirname(safeNotePath), desiredName);
   fs.renameSync(safeNotePath, destination);
-  return path.relative(resolveSafePath(''), destination);
+  const destinationRelative = path.relative(resolveSafePath(''), destination);
+  remapMetadataPath(noteRelativePath, destinationRelative);
+  return destinationRelative;
 }
 
 export function saveTextFile(fileRelativePath: string, content: string): string {
@@ -271,6 +380,7 @@ export function cancelNote(noteRelativePath: string): string {
   }
 
   fs.unlinkSync(safeNotePath);
+  removeMetadataPath(noteRelativePath);
   return noteRelativePath;
 }
 
@@ -288,6 +398,7 @@ export function renameOrMove(oldRelativePath: string, newRelativePath: string): 
   }
 
   fs.renameSync(oldSafe, newSafe);
+  remapMetadataPath(oldRelativePath, newRelativePath);
   return path.relative(resolveSafePath(''), newSafe);
 }
 
@@ -319,6 +430,8 @@ export function moveToTrash(itemRelativePath: string): string {
 
   fs.renameSync(safeItem, targetPath);
   const trashRelative = path.relative(resolveSafePath(''), targetPath);
+  remapMetadataPath(itemRelativePath, trashRelative);
+  removeFavoritesPath(trashRelative);
 
   // Save the original location mapping
   const origins = loadTrashOrigins();
@@ -342,6 +455,7 @@ export function deletePermanently(itemRelativePath: string): string {
   } else {
     fs.unlinkSync(safeItem);
   }
+  removeMetadataPath(itemRelativePath);
 
   // Clean up stored mapping
   const origins = loadTrashOrigins();
@@ -369,6 +483,7 @@ export function emptyTrash(): void {
 
   // Reset all origins mapping
   saveTrashOrigins({});
+  removeMetadataPath('.TrashFolder');
 }
 
 // Trash Origins mapping database
@@ -443,12 +558,14 @@ export function putBack(itemRelativePath: string): string {
   }
 
   fs.renameSync(safeTrashItem, finalDest);
+  const restoredRelative = path.relative(resolveSafePath(''), finalDest);
+  remapMetadataPath(itemRelativePath, restoredRelative);
 
   // Clean up registration mapping
   delete origins[itemRelativePath];
   saveTrashOrigins(origins);
 
-  return path.relative(resolveSafePath(''), finalDest);
+  return restoredRelative;
 }
 
 // Zip items into a .zip archive inside current folder

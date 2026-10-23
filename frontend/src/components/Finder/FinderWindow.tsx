@@ -20,7 +20,11 @@ interface FileItem {
   birthtime: string;
   mimeType: string;
   hasTrashOrigin?: boolean;
+  tags?: TagColor[];
 }
+
+type TagColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'gray';
+const TAG_COLORS: TagColor[] = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
 
 interface FinderWindowProps {
   apiBase: string;
@@ -84,6 +88,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     return saved === 'true';
   });
   const [loading, setLoading] = useState(false);
+  const [favorites, setFavorites] = useState<string[]>([]);
 
   // Sync visual preferences to localStorage
   useEffect(() => {
@@ -173,6 +178,40 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   useEffect(() => {
     fetchDirectory(currentPath);
   }, [currentPath]);
+
+  const fetchFavorites = async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/finder/favorites`);
+      const data = await res.json();
+      if (res.ok && data.success) setFavorites(data.favorites);
+    } catch (error) { console.error('Failed to load favorites:', error); }
+  };
+
+  useEffect(() => { void fetchFavorites(); }, [apiBase]);
+
+  const addFavorite = async (favoritePath: string) => {
+    const res = await fetch(`${apiBase}/api/finder/favorites`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: favoritePath })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) setFavorites(data.favorites);
+  };
+
+  const removeFavorite = async (favoritePath: string) => {
+    const res = await fetch(`${apiBase}/api/finder/favorites`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: favoritePath })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) setFavorites(data.favorites);
+  };
+
+  const toggleTag = async (targets: FileItem[], color: TagColor) => {
+    const res = await fetch(`${apiBase}/api/finder/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: targets.map(target => target.relativePath), color })
+    });
+    if (res.ok) await fetchDirectory(currentPath);
+  };
 
   // Navigate to a specific path
   const navigateTo = (newPath: string) => {
@@ -1149,6 +1188,9 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           }
         });
       } else {
+        if (single.isDirectory && !favorites.includes(single.relativePath)) {
+          menuItems.push({ label: 'Add to Favorites', onClick: () => void addFavorite(single.relativePath) });
+        }
         menuItems.push({
           label: 'Rename...',
           onClick: () => {
@@ -1193,6 +1235,12 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           }
         });
       }
+      menuItems.push({ separator: true, onClick: () => {} });
+      menuItems.push({
+        tagColors: TAG_COLORS.map(color => ({ color, active: !!single.tags?.includes(color) })),
+        onClick: () => {},
+        onTagClick: color => void toggleTag(targets, color as TagColor)
+      });
     } else if (targets.length > 1) {
       const isInsideTrash = currentPath.includes('.TrashFolder') || currentPath === 'Trash';
 
@@ -1240,6 +1288,12 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
           onClick: () => executeDelete()
         });
       }
+      menuItems.push({ separator: true, onClick: () => {} });
+      menuItems.push({
+        tagColors: TAG_COLORS.map(color => ({ color, active: targets.every(target => target.tags?.includes(color)) })),
+        onClick: () => {},
+        onTagClick: color => void toggleTag(targets, color as TagColor)
+      });
     } else {
       // Empty workspace right-click menu
       menuItems.push({
@@ -1751,36 +1805,24 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               <TrashIcon size={20} />
               <span>Trash</span>
             </div>
-          </div>
-
-          <div className="sidebar-section">
-            <h4 className="sidebar-title">Volumes</h4>
-            <div 
-              className={`sidebar-item ${isSidebarActive('Documents') ? 'active' : ''}`} 
-              onClick={() => navigateTo('Documents')}
-              onDragOver={(e) => {
-                if (draggedItem && draggedItem.relativePath !== 'Documents' && !draggedItem.relativePath.startsWith('Documents/')) {
-                  e.preventDefault();
-                }
-              }}
-              onDrop={(e) => handleDropOnSidebar(e, 'Documents')}
-            >
-              {renderIcon('directory', 20)}
-              <span>Documents</span>
-            </div>
-            <div 
-              className={`sidebar-item ${isSidebarActive('Downloads') ? 'active' : ''}`} 
-              onClick={() => navigateTo('Downloads')}
-              onDragOver={(e) => {
-                if (draggedItem && draggedItem.relativePath !== 'Downloads' && !draggedItem.relativePath.startsWith('Downloads/')) {
-                  e.preventDefault();
-                }
-              }}
-              onDrop={(e) => handleDropOnSidebar(e, 'Downloads')}
-            >
-              {renderIcon('directory', 20)}
-              <span>Downloads</span>
-            </div>
+            {favorites.length > 0 && <div className="sidebar-separator" aria-hidden="true" />}
+            {favorites.map(favorite => (
+              <div key={favorite}
+                className={`sidebar-item ${isSidebarActive(favorite) ? 'active' : ''}`}
+                onClick={() => navigateTo(favorite)}
+                onContextMenu={(event) => {
+                  event.preventDefault(); event.stopPropagation();
+                  setContextMenu({ x: event.clientX, y: event.clientY, visible: true, items: [
+                    { label: 'Remove from Favorites', onClick: () => void removeFavorite(favorite) }
+                  ] });
+                }}
+                onDragOver={(event) => { if (draggedItem) event.preventDefault(); }}
+                onDrop={(event) => handleDropOnSidebar(event, favorite)}
+              >
+                {renderIcon('directory', 20)}
+                <span title={favorite}>{favorite.split('/').pop()}</span>
+              </div>
+            ))}
           </div>
         </aside>
 
@@ -1873,7 +1915,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                   <div
                     key={item.relativePath}
                     data-relative-path={item.relativePath}
-                    className={`grid-item ${isSelected ? 'selected' : ''}`}
+                    className={`grid-item ${isSelected ? 'selected' : ''} ${item.tags?.length ? 'tagged' : ''}`}
+                    style={!isSelected && item.tags?.length ? { background: `color-mix(in srgb, var(--tag-${item.tags[0]}) 15%, transparent)` } : undefined}
                     onClick={(e) => handleItemClick(e, item)}
                     onDoubleClick={() => handleDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
@@ -1890,6 +1933,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                       {renderIcon(item.mimeType, 42)}
                     </div>
                     <div className="grid-item-name">{item.name}</div>
+                    {!!item.tags?.length && <div className="file-tags">{item.tags.map(tag => <i key={tag} className={`file-tag tag-${tag}`} />)}</div>}
                   </div>
                 );
               })}
@@ -1980,6 +2024,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                       key={item.relativePath}
                       data-relative-path={item.relativePath}
                       className={`list-item-row ${isSelected ? 'selected' : ''}`}
+                      style={!isSelected && item.tags?.length ? { background: `color-mix(in srgb, var(--tag-${item.tags[0]}) 14%, transparent)` } : undefined}
                       onClick={(e) => handleItemClick(e, item)}
                       onDoubleClick={() => handleDoubleClick(item)}
                       onContextMenu={(e) => handleContextMenu(e, item)}
@@ -1996,6 +2041,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                         <div className="list-file-name-cell">
                           {renderIcon(item.mimeType, 16)}
                           <span>{item.name}</span>
+                          {!!item.tags?.length && <span className="file-tags">{item.tags.map(tag => <i key={tag} className={`file-tag tag-${tag}`} />)}</span>}
                         </div>
                       </td>
                       <td>{item.isDirectory ? '--' : formatBytes(item.size)}</td>

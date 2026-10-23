@@ -4,6 +4,8 @@ export interface ContextMenuItem {
   label?: string;
   onClick: () => void;
   separator?: boolean;
+  tagColors?: { color: string; active: boolean }[];
+  onTagClick?: (color: string) => void;
 }
 
 interface ContextMenuProps {
@@ -36,7 +38,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, items, 
   if (!visible) return null;
 
   // Reposition if menu overflows window boundaries
-  const menuWidth = 160;
+  const menuWidth = 190;
   const menuHeight = items.length * 30; // Approx
   const screenWidth = window.innerWidth;
   const screenHeight = window.innerHeight;
@@ -57,6 +59,20 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, items, 
         <React.Fragment key={idx}>
           {item.separator ? (
             <div className="context-separator" />
+          ) : item.tagColors ? (
+            <div className="context-tag-picker" aria-label="Tags">
+              {item.tagColors.map(tag => (
+                <button
+                  key={tag.color}
+                  className={`tag-choice tag-${tag.color} ${tag.active ? 'active' : ''}`}
+                  aria-label={`${tag.active ? 'Remove' : 'Add'} ${tag.color} tag`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    item.onTagClick?.(tag.color);
+                  }}
+                >{tag.active ? '✓' : ''}</button>
+              ))}
+            </div>
           ) : (
             <div
               className="context-item"

@@ -425,6 +425,28 @@ app.get('/api/files/list', requireFullAuth, async (req, res) => {
   }
 });
 
+app.get('/api/finder/favorites', requireFullAuth, (_req, res) => {
+  res.json({ success: true, favorites: fileService.getFavorites() });
+});
+
+app.post('/api/finder/favorites', requireFullAuth, (req, res) => {
+  try {
+    res.json({ success: true, favorites: fileService.addFavorite(String(req.body.path || '')) });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/finder/favorites', requireFullAuth, (req, res) => {
+  res.json({ success: true, favorites: fileService.removeFavorite(String(req.body.path || '')) });
+});
+
+app.post('/api/finder/tags', requireFullAuth, (req, res) => {
+  const { paths, color } = req.body;
+  if (!Array.isArray(paths)) return res.status(400).json({ error: 'paths array is required' });
+  try {
+    res.json({ success: true, tags: fileService.setTags(paths.map(String), color) });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
 // Create Folder
 app.post('/api/files/create-folder', requireFullAuth, (req, res) => {
   const { path: parentPath, name } = req.body;
