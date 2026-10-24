@@ -426,7 +426,8 @@ app.get('/api/files/list', requireFullAuth, async (req, res) => {
 });
 
 app.get('/api/finder/favorites', requireFullAuth, (_req, res) => {
-  res.json({ success: true, favorites: fileService.getFavorites() });
+  const favorites = fileService.getFavorites();
+  res.json({ success: true, favorites, tags: fileService.getTagsForPaths(favorites) });
 });
 
 app.post('/api/finder/favorites', requireFullAuth, (req, res) => {

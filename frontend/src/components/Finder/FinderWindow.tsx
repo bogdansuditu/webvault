@@ -7,7 +7,6 @@ import {
 } from '../../assets/icons';
 import { ContextMenu, ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { MarkdownPreview } from './MarkdownPreview';
-import { MarkdownEditor } from './MarkdownEditor';
 import { CSVPreview } from './CSVPreview';
 import { TiffPreview } from './TiffPreview';
 
@@ -73,6 +72,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const [isEditingNewNote, setIsEditingNewNote] = useState(false);
   const [isEditingExistingFile, setIsEditingExistingFile] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
+  const [editorPreviewMode, setEditorPreviewMode] = useState(false);
   const isEditingFile = isEditingNewNote || isEditingExistingFile;
 
   // Files List
@@ -89,6 +89,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   });
   const [loading, setLoading] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoriteTags, setFavoriteTags] = useState<Record<string, TagColor[]>>({});
 
   // Sync visual preferences to localStorage
   useEffect(() => {
@@ -183,7 +184,10 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     try {
       const res = await fetch(`${apiBase}/api/finder/favorites`);
       const data = await res.json();
-      if (res.ok && data.success) setFavorites(data.favorites);
+      if (res.ok && data.success) {
+        setFavorites(data.favorites);
+        setFavoriteTags(data.tags || {});
+      }
     } catch (error) { console.error('Failed to load favorites:', error); }
   };
 
@@ -210,7 +214,9 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths: targets.map(target => target.relativePath), color })
     });
-    if (res.ok) await fetchDirectory(currentPath);
+    if (res.ok) {
+      await Promise.all([fetchDirectory(currentPath), fetchFavorites()]);
+    }
   };
 
   // Navigate to a specific path
@@ -280,6 +286,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
   const updateActivePreview = async (item: FileItem | null) => {
     setIsEditingNewNote(false);
     setIsEditingExistingFile(false);
+    setEditorPreviewMode(false);
     setViewingFile(item);
     if (!item) {
       setViewerTextContent('');
@@ -508,6 +515,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
       });
       setViewerTextContent('');
       setIsEditingNewNote(true);
+      setEditorPreviewMode(false);
       setViewerVisible(true);
       fetchDirectory(currentPath);
     } catch (err: any) {
@@ -522,6 +530,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     setViewerTextContent('');
     setIsEditingNewNote(false);
     setIsEditingExistingFile(false);
+    setEditorPreviewMode(false);
   };
 
   const executeEditFile = async (item: FileItem) => {
@@ -529,6 +538,7 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
     setViewingFile(item);
     setViewerTextContent('');
     setIsEditingExistingFile(true);
+    setEditorPreviewMode(false);
     setViewerLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/files/download?path=${encodeURIComponent(item.relativePath)}`);
@@ -1821,6 +1831,11 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
               >
                 {renderIcon('directory', 20)}
                 <span title={favorite}>{favorite.split('/').pop()}</span>
+                {!!favoriteTags[favorite]?.length && (
+                  <span className="file-tags sidebar-tags" aria-label={`${favoriteTags[favorite].length} tags`}>
+                    {favoriteTags[favorite].map(tag => <i key={tag} className={`file-tag tag-${tag}`} />)}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -2546,6 +2561,21 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
 
               {/* Right Action Menu */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {isEditingFile && (
+                  <button
+                    className={`editor-preview-toggle ${editorPreviewMode ? 'active' : ''}`}
+                    onClick={() => setEditorPreviewMode(current => !current)}
+                    disabled={noteSaving}
+                    title={editorPreviewMode ? 'Return to edit mode' : 'Preview Markdown'}
+                    aria-label={editorPreviewMode ? 'Return to edit mode' : 'Preview Markdown'}
+                    aria-pressed={editorPreviewMode}
+                  >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                )}
                 <button 
                   onClick={isEditingFile ? executeSaveEditor : () => triggerDownload([viewingFile])}
                   disabled={noteSaving}
@@ -2613,14 +2643,8 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                 </div>
               ) : (
                 <>
-                  {/* New Markdown Note Editor with live rendered preview */}
-                  {isEditingFile && viewingFile.name.toLowerCase().endsWith('.md') && (
-                    <div className="markdown-editor-container">
-                      <MarkdownEditor value={viewerTextContent} onChange={setViewerTextContent} />
-                    </div>
-                  )}
-
-                  {isEditingFile && !viewingFile.name.toLowerCase().endsWith('.md') && (
+                  {/* Lossless source editor; rendering is isolated in preview mode. */}
+                  {isEditingFile && !editorPreviewMode && (
                     <div className="markdown-editor-container">
                       <textarea
                         className="plain-text-editor"
@@ -2628,8 +2652,26 @@ export const FinderWindow: React.FC<FinderWindowProps> = ({
                         aria-label={`Edit ${viewingFile.name}`}
                         value={viewerTextContent}
                         onChange={(event) => setViewerTextContent(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Tab') return;
+                          event.preventDefault();
+                          const textarea = event.currentTarget;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const nextValue = `${textarea.value.slice(0, start)}\t${textarea.value.slice(end)}`;
+                          setViewerTextContent(nextValue);
+                          requestAnimationFrame(() => {
+                            textarea.selectionStart = textarea.selectionEnd = start + 1;
+                          });
+                        }}
                         spellCheck={!viewingFile.name.toLowerCase().endsWith('.csv')}
                       />
+                    </div>
+                  )}
+
+                  {isEditingFile && editorPreviewMode && (
+                    <div style={{ padding: '30px 40px', width: '100%', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
+                      <MarkdownPreview content={viewerTextContent} isDarkMode={isDarkMode} />
                     </div>
                   )}
 

@@ -127,6 +127,15 @@ export function getFavorites(): string[] {
   return loadFinderMetadata().favorites;
 }
 
+export function getTagsForPaths(paths: string[]): Record<string, TagColor[]> {
+  const tags = loadFinderMetadata().tags;
+  const result: Record<string, TagColor[]> = {};
+  for (const relativePath of paths) {
+    if (tags[relativePath]) result[relativePath] = tags[relativePath];
+  }
+  return result;
+}
+
 export function addFavorite(relativePath: string): string[] {
   const safePath = resolveSafePath(relativePath);
   if (!relativePath || !fs.existsSync(safePath) || !fs.statSync(safePath).isDirectory()) throw new Error('Favorite must be an existing folder');
